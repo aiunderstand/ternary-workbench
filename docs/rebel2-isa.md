@@ -63,10 +63,10 @@ Immediates (imm2) are 2-trit balanced integers in range [−4, 4].
 | MV.T | I | -0 | rd1, rs1 | 00 | Pseudo | rd1 = rs1 |
 | NOP.T | I | -0 | | 00 | Pseudo | No-op (write 0 to X0) |
 | SC.T | I | 0+ | rd1, rs1, imm2 | 00 | Ternary Shift | Cyclic shift by imm2 |
-| SLIM.T | I | 0+ | rd1, rs1, imm2 | -- | Ternary Shift | Shift left by imm2, fill with − |
+| SLIN.T | I | 0+ | rd1, rs1, imm2 | -- | Ternary Shift | Shift left by imm2, fill with − |
 | SLIZ.T | I | 0+ | rd1, rs1, imm2 | -0 | Ternary Shift | Shift left by imm2, fill with 0 |
 | SLIP.T | I | 0+ | rd1, rs1, imm2 | -+ | Ternary Shift | Shift left by imm2, fill with + |
-| SRIM.T | I | 0+ | rd1, rs1, imm2 | +- | Ternary Shift | Shift right by imm2, fill with − |
+| SRIN.T | I | 0+ | rd1, rs1, imm2 | +- | Ternary Shift | Shift right by imm2, fill with − |
 | SRIZ.T | I | 0+ | rd1, rs1, imm2 | +0 | Ternary Shift | Shift right by imm2, fill with 0 |
 | SRIP.T | I | 0+ | rd1, rs1, imm2 | ++ | Ternary Shift | Shift right by imm2, fill with + |
 | STI.T | R | -- | rd1, rs2 | -- | Ternary ALU | rd1 = −rs2 |

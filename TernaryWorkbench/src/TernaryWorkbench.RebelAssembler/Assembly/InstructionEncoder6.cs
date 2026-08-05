@@ -59,7 +59,23 @@ internal static class InstructionEncoder6
 
         for (var i = 0; i < operands.Count; i++)
         {
-            var fieldName   = pattern.AssemblyOperands[i];
+            var fieldName = pattern.AssemblyOperands[i];
+
+            if (WideFieldSlots(fieldName) is { } wide)
+            {
+                var value12 = ParseWide12(
+                    operands[i], Displacement12Max, instruction.LineNumber, labels, currentIndex);
+                fields[wide.Hi] = value12[0..6];
+                fields[wide.Lo] = value12[6..12];
+                continue;
+            }
+
+            if (IsShamtField(fieldName))
+            {
+                fields[Rd2] = ParseShamt(operands[i], instruction.LineNumber);
+                continue;
+            }
+
             var targetField = MapFieldToSlot(fieldName);
             fields[targetField] = ParseOperand(
                 operands[i], targetField, instruction.LineNumber, labels, currentIndex,
@@ -146,6 +162,63 @@ internal static class InstructionEncoder6
     // Operand parsing
     // -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Parses a shift amount into the 6-trit rd2 slot, range-checked to 4 trits. The fill selector
+    /// lives in the rs2 slot and is supplied by the instruction pattern, not by an operand.
+    /// </summary>
+    private static string ParseShamt(string operand, int lineNumber)
+    {
+        var token = operand.Trim();
+
+        if (TryParseTritString(token, 6, out var trits))
+            return trits;
+
+        if (int.TryParse(token, out var value))
+        {
+            if (value < -Shamt4Max || value > Shamt4Max)
+                throw new InvalidOperationException(
+                    $"Shift amount {value} is outside the 4-trit range (-{Shamt4Max}..{Shamt4Max}) on line {lineNumber}.");
+            return ToBalancedTernaryN(value, 6);
+        }
+
+        throw new InvalidOperationException(
+            $"Unable to parse shift amount '{operand}' on line {lineNumber}. Expected a number or a 6-trit string.");
+    }
+
+    /// <summary>
+    /// Parses a 12-trit immediate or PC-relative displacement, returning it MST-first for the
+    /// caller to split across its two slots. Accepts a label, a 12-trit string, or a number.
+    /// </summary>
+    private static string ParseWide12(
+        string operand, int max, int lineNumber,
+        IReadOnlyDictionary<string, LabelDefinition>? labels, int currentIndex)
+    {
+        var token = operand.Trim();
+
+        if (labels != null && labels.TryGetValue(token, out var label))
+        {
+            int offset = label.InstructionIndex - currentIndex;
+            if (offset < -max || offset > max)
+                throw new InvalidOperationException(
+                    $"Reference to label '{token}' on line {lineNumber} produces offset {offset} which is outside the permitted range (-{max}..{max}).");
+            return ToBalancedTernaryN(offset, 12);
+        }
+
+        if (TryParseTritString(token, 12, out var trits))
+            return trits;
+
+        if (int.TryParse(token, out var value))
+        {
+            if (value < -max || value > max)
+                throw new InvalidOperationException(
+                    $"Value {value} is outside the permitted range (-{max}..{max}) on line {lineNumber}.");
+            return ToBalancedTernaryN(value, 12);
+        }
+
+        throw new InvalidOperationException(
+            $"Unable to parse 12-trit immediate '{operand}' on line {lineNumber}. Expected a label, a 12-trit string, or a number.");
+    }
+
     private static string ParseOperand(
         string operand, string field, int lineNumber,
         IReadOnlyDictionary<string, LabelDefinition>? labels, int currentIndex,
@@ -160,9 +233,9 @@ internal static class InstructionEncoder6
             {
                 // PC-relative: offset = target_index - current_index
                 int offset = label.InstructionIndex - currentIndex;
-                if (offset < -364 || offset > 364)
+                if (offset < -Displacement6Max || offset > Displacement6Max)
                     throw new InvalidOperationException(
-                        $"Branch to label '{token}' on line {lineNumber} produces offset {offset} which is outside the 6-trit range (-364..364).");
+                        $"Branch to label '{token}' on line {lineNumber} produces offset {offset} which is outside the 6-trit range (-{Displacement6Max}..{Displacement6Max}).");
                 return ToBalancedTernaryN(offset, 6);
             }
             else
@@ -190,9 +263,9 @@ internal static class InstructionEncoder6
         // Numeric immediate → 6-trit balanced ternary
         if (int.TryParse(token, out var numericValue))
         {
-            if (numericValue < -364 || numericValue > 364)
+            if (numericValue < -Displacement6Max || numericValue > Displacement6Max)
                 throw new InvalidOperationException(
-                    $"Immediate {numericValue} is outside the 6-trit range (-364..364) on line {lineNumber}.");
+                    $"Immediate {numericValue} is outside the 6-trit range (-{Displacement6Max}..{Displacement6Max}) on line {lineNumber}.");
             return ToBalancedTernaryN(numericValue, 6);
         }
 

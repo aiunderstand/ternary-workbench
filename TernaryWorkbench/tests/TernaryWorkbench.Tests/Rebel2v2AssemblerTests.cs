@@ -69,10 +69,10 @@ public class Rebel2v2AssemblerTests
     [InlineData("MAXW.T X1, X2, X3",      "-0+-+00++-")]  // func=+-
     [InlineData("MAXT.T X1, X2, X3",      "-0+-+00++0")]  // func=+0
     // Group 6 — Shift (opcode 0+) — unchanged from v1
-    [InlineData("SLIM.T X1, X2, ++",      "0++-++0+--")]
+    [InlineData("SLIN.T X1, X2, ++",      "0++-++0+--")]
     [InlineData("SLIZ.T X1, X2, ++",      "0++-++0+-0")]
     [InlineData("SLIP.T X1, X2, ++",      "0++-++0+-+")]
-    [InlineData("SRIM.T X1, X2, ++",      "0++-++0++-")]
+    [InlineData("SRIN.T X1, X2, ++",      "0++-++0++-")]
     [InlineData("SRIZ.T X1, X2, ++",      "0++-++0++0")]
     [InlineData("SRIP.T X1, X2, ++",      "0++-++0+++")]
     [InlineData("SC.T X1, X2, ++",        "0++-++0+00")]
@@ -194,10 +194,10 @@ public class Rebel2v2AssemblerTests
     [InlineData("-0+-+00++-",   "MAXW.T X1, X2, X3")]
     [InlineData("-0+-+00++0",   "MAXT.T X1, X2, X3")]
     // Group 6
-    [InlineData("0++-++0+--",   "SLIM.T X1, X2, X4")]
+    [InlineData("0++-++0+--",   "SLIN.T X1, X2, X4")]
     [InlineData("0++-++0+-0",   "SLIZ.T X1, X2, X4")]
     [InlineData("0++-++0+-+",   "SLIP.T X1, X2, X4")]
-    [InlineData("0++-++0++-",   "SRIM.T X1, X2, X4")]
+    [InlineData("0++-++0++-",   "SRIN.T X1, X2, X4")]
     [InlineData("0++-++0++0",   "SRIZ.T X1, X2, X4")]
     [InlineData("0++-++0+++",   "SRIP.T X1, X2, X4")]
     [InlineData("0++-++0+00",   "SC.T X1, X2, X4")]
@@ -256,10 +256,10 @@ public class Rebel2v2AssemblerTests
     [InlineData("MAXI.T X1, X2, ++")]
     [InlineData("MAXW.T X1, X2, X3")]
     [InlineData("MAXT.T X1, X2, X3")]
-    [InlineData("SLIM.T X1, X2, ++")]
+    [InlineData("SLIN.T X1, X2, ++")]
     [InlineData("SLIZ.T X1, X2, ++")]
     [InlineData("SLIP.T X1, X2, ++")]
-    [InlineData("SRIM.T X1, X2, ++")]
+    [InlineData("SRIN.T X1, X2, ++")]
     [InlineData("SRIZ.T X1, X2, ++")]
     [InlineData("SRIP.T X1, X2, ++")]
     [InlineData("SC.T X1, X2, ++")]

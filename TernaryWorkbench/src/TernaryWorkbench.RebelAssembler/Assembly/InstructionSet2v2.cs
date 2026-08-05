@@ -95,11 +95,11 @@ internal static class InstructionSet2v2
             // ---------------------------------------------------------------
             // Group 6 — Shift (opcode 0+)  I format  — unchanged from v1
             // ---------------------------------------------------------------
-            { "SLIM.T",   new InstructionPattern("SLIM.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "--" } }) },
+            { "SLIN.T",   new InstructionPattern("SLIN.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "--" } }) },
             { "SLIZ.T",   new InstructionPattern("SLIZ.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "-0" } }) },
             { "SLIP.T",   new InstructionPattern("SLIP.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "-+" } }) },
             { "SC.T",     new InstructionPattern("SC.T",     "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "00" } }) },
-            { "SRIM.T",   new InstructionPattern("SRIM.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+-" } }) },
+            { "SRIN.T",   new InstructionPattern("SRIN.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+-" } }) },
             { "SRIZ.T",   new InstructionPattern("SRIZ.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+0" } }) },
             { "SRIP.T",   new InstructionPattern("SRIP.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "++" } }) },
 

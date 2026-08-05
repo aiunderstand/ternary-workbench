@@ -38,9 +38,11 @@ namespace TernaryWorkbench.RebelAssembler.Assembly;
 /// <c>rs1[6] | imm[23:0][24] | opc[2]</c>
 /// </para>
 /// <para>
-/// B-type: <c>rs1[6] | rs2[6] | off1[6] | off2[6] | func[4] | opcode[4]</c>. The three-way
-/// branches <c>BCGS.T</c> and <c>BCEG.T</c> use both displacement slots; stores and the binary
-/// two-way branches use <c>off2</c> only and leave <c>off1</c> zero.
+/// B-type: <c>rs1[6] | rs2[6] | rd1[6] | rd2[6] | func[4] | opcode[4]</c>, where the rd1+rd2
+/// slots hold displacements and the func selects how they are read —
+/// one contiguous 12-trit displacement (two-way ternary branches, ±265720);
+/// two independent 6-trit displacements <c>off1</c>/<c>off2</c> (three-way branches, ±364 each);
+/// or the low 6 trits alone with rd1 zero (stores, binary two-way branches, ±364).
 /// </para>
 /// <para>
 /// NOP.T encodes as all-zero 32 trits (opcode <c>0000</c>, func <c>0000</c>,
@@ -58,9 +60,24 @@ internal static class InstructionSet6
     public const string Rd1  = "rd1";
     public const string Rd2  = "rd2";
     public const string Func = "func";
-    public const string Imm  = "imm";   // maps to rs2 slot in I-type
-    public const string Off1 = "off1";  // maps to rd1 slot in B-type (first displacement)
-    public const string Off2 = "off2";  // maps to rd2 slot in B-type (second displacement)
+    public const string Imm   = "imm";    // I-type imm12, split around rd1: rs2 slot = imm[11:6], rd2 slot = imm[5:0]
+    public const string Shamt = "shamt";  // shift amount: rd2 slot alone, 4 trits (rs2 slot holds the fill)
+    public const string Disp  = "disp";   // B-type imm12, contiguous across the rd1 and rd2 slots
+    public const string Off1 = "off1";  // rd1 slot alone: first 6-trit displacement of a three-way branch
+    public const string Off2 = "off2";  // rd2 slot alone: second 6-trit displacement of a three-way branch
+
+    /// <summary>Largest magnitude a 6-trit balanced-ternary displacement can hold.</summary>
+    public const int Displacement6Max = 364;
+
+    /// <summary>Largest magnitude a 12-trit balanced-ternary displacement can hold.</summary>
+    public const int Displacement12Max = 265720;
+
+    /// <summary>
+    /// Largest magnitude a 4-trit shift amount can hold. The binary shift-immediate instructions
+    /// carry RV32I's 5-bit shamt (0..31) in 4 trits, so the field is range-checked to ±40 even
+    /// though it occupies the full 12-trit immediate slot pair.
+    /// </summary>
+    public const int Shamt4Max = 40;
 
     public const string DefaultField = "000000"; // 6 trits, zero register / unused field
     public const string DefaultFunc  = "0000";   // 4-trit func field, all zero
@@ -146,8 +163,17 @@ internal static class InstructionSet6
             // ----------------------------------------------------------------
             { "ADD.T",  new InstructionPattern("ADD.T",  "--00", [Rd1, Rs1, Rs2], Func4("00--")) },
             { "SUB.T",  new InstructionPattern("SUB.T",  "--00", [Rd1, Rs1, Rs2], Func4("00-0")) },
-            { "SL.T",   new InstructionPattern("SL.T",   "--00", [Rd1, Rs1, Rs2], Func4("00-+")) },
-            { "SR.T",   new InstructionPattern("SR.T",   "--00", [Rd1, Rs1, Rs2], Func4("000-")) },
+
+            // Register-amount shifts: the shift amount is rs2, the fill trit is the least
+            // significant trit of the otherwise unused rd2 slot. All three fills share one func,
+            // so func alone does not identify the instruction — the fill trit must be read too.
+            { "SLN.T",  new InstructionPattern("SLN.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "00000-"))) },
+            { "SLZ.T",  new InstructionPattern("SLZ.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "000000"))) },
+            { "SLP.T",  new InstructionPattern("SLP.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "00000+"))) },
+            { "SRN.T",  new InstructionPattern("SRN.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, "00000-"))) },
+            { "SRZ.T",  new InstructionPattern("SRZ.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, "000000"))) },
+            { "SRP.T",  new InstructionPattern("SRP.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, "00000+"))) },
+
             { "SLT.T",  new InstructionPattern("SLT.T",  "--00", [Rd1, Rs1, Rs2], Func4("0000")) },
             { "OR.T",   new InstructionPattern("OR.T",   "--00", [Rd1, Rs1, Rs2], Func4("000+")) },
             { "XOR.T",  new InstructionPattern("XOR.T",  "--00", [Rd1, Rs1, Rs2], Func4("00+-")) },
@@ -165,12 +191,22 @@ internal static class InstructionSet6
             // Func 0000 = ADDI.T, others follow
             // ----------------------------------------------------------------
             { "ADDI.T",  new InstructionPattern("ADDI.T",  "0000", [Rd1, Rs1, Imm], Func4("0000")) },
-            { "SLI.T",   new InstructionPattern("SLI.T",   "0000", [Rd1, Rs1, Imm], Func4("00--")) },
-            { "SRI.T",   new InstructionPattern("SRI.T",   "0000", [Rd1, Rs1, Imm], Func4("00-0")) },
-            { "SLTI.T",  new InstructionPattern("SLTI.T",  "0000", [Rd1, Rs1, Imm], Func4("00-+")) },
-            { "ORI.T",   new InstructionPattern("ORI.T",   "0000", [Rd1, Rs1, Imm], Func4("000-")) },
-            { "XORI.T",  new InstructionPattern("XORI.T",  "0000", [Rd1, Rs1, Imm], Func4("000+")) },
-            { "ANDI.T",  new InstructionPattern("ANDI.T",  "0000", [Rd1, Rs1, Imm], Func4("00+-")) },
+
+            // Immediate shifts read imm12 as its two natural 6-trit halves: the rs2 slot
+            // (imm[11:6]) carries the fill selector, the rd2 slot (imm[5:0]) carries shamt.
+            // SC.T is cyclic, so it has no fill and requires the selector half to be zero.
+            { "SLIN.T",  new InstructionPattern("SLIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000-"))) },
+            { "SLIZ.T",  new InstructionPattern("SLIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "000000"))) },
+            { "SLIP.T",  new InstructionPattern("SLIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000+"))) },
+            { "SRIN.T",  new InstructionPattern("SRIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "00000-"))) },
+            { "SRIZ.T",  new InstructionPattern("SRIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "000000"))) },
+            { "SRIP.T",  new InstructionPattern("SRIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "00000+"))) },
+            { "SC.T",    new InstructionPattern("SC.T",    "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-+"), Fixed(Rs2, DefaultField))) },
+
+            { "SLTI.T",  new InstructionPattern("SLTI.T",  "0000", [Rd1, Rs1, Imm], Func4("000-")) },
+            { "ORI.T",   new InstructionPattern("ORI.T",   "0000", [Rd1, Rs1, Imm], Func4("000+")) },
+            { "XORI.T",  new InstructionPattern("XORI.T",  "0000", [Rd1, Rs1, Imm], Func4("00+-")) },
+            { "ANDI.T",  new InstructionPattern("ANDI.T",  "0000", [Rd1, Rs1, Imm], Func4("00+0")) },
 
             // Pseudo-instructions (reuse ADDI.T encoding with func 0000)
             { "NOP.T",   new InstructionPattern("NOP.T",   "0000", [],
@@ -179,7 +215,8 @@ internal static class InstructionSet6
                 Merge(Func4("0000"), Fixed(Rs2, DefaultField), Fixed(Rd2, DefaultField))) },
 
             // ----------------------------------------------------------------
-            // I-type load  opcode=-+00   (Imm → rs2 slot)
+            // I-type load  opcode=-+00   (indexed: base register + imm12 split around rd1)
+            // The absolute counterparts are the G/Y-type LWA.T / SWA.T.
             // ----------------------------------------------------------------
             { "LW.T",    new InstructionPattern("LW.T",    "-+00", [Rd1, Rs1, Imm], Func4("00--")) },
             { "LH.T",    new InstructionPattern("LH.T",    "-+00", [Rd1, Rs1, Imm], Func4("00-0")) },
@@ -187,24 +224,31 @@ internal static class InstructionSet6
             { "JALR.T",  new InstructionPattern("JALR.T",  "-+00", [Rd1, Rs1, Imm], Func4("000-")) },
 
             // ----------------------------------------------------------------
-            // B-type three-way branch  opcode=0-00   (both displacement slots used)
+            // B-type three-way branch  opcode=0-00   (rd1+rd2 read as two 6-trit
+            // displacements, ±364 each)
             // BCGS.T: rs1 > rs2 → PC+off1; rs1 < rs2 → PC+off2; rs1 == rs2 → PC+1
             // BCEG.T: rs1 == rs2 → PC+off1; rs1 > rs2 → PC+off2; rs1 < rs2 → PC+1
-            // These are the only architectural ternary branches; the six two-way
-            // comparison branches are pseudo-instructions (see PseudoExpansions).
             // ----------------------------------------------------------------
             { "BCGS.T",  new InstructionPattern("BCGS.T",  "0-00", [Rs1, Rs2, Off1, Off2], Func4("00--")) },
             { "BCEG.T",  new InstructionPattern("BCEG.T",  "0-00", [Rs1, Rs2, Off1, Off2], Func4("00-0")) },
 
             // ----------------------------------------------------------------
-            // B-type store  opcode=0+00   (single displacement → rd2 slot, Rd1 fixed)
+            // B-type two-way branch  opcode=0-00   (rd1+rd2 read as one contiguous
+            // 12-trit displacement, ±265720 — 259x the RV32I branch range)
+            // BGT.T and BLE.T are pseudo-instructions over BLT.T / BGE.T with the
+            // source operands swapped (see PseudoExpansions).
             // ----------------------------------------------------------------
-            { "SW.T",    new InstructionPattern("SW.T",    "0+00", [Rs1, Rs2, Off2],
-                Merge(Func4("00--"), Fixed(Rd1, DefaultField))) },
-            { "SH.T",    new InstructionPattern("SH.T",    "0+00", [Rs1, Rs2, Off2],
-                Merge(Func4("00-0"), Fixed(Rd1, DefaultField))) },
-            { "ST.T",    new InstructionPattern("ST.T",    "0+00", [Rs1, Rs2, Off2],
-                Merge(Func4("00-+"), Fixed(Rd1, DefaultField))) },
+            { "BEQ.T",   new InstructionPattern("BEQ.T",   "0-00", [Rs1, Rs2, Disp], Func4("00-+")) },
+            { "BNE.T",   new InstructionPattern("BNE.T",   "0-00", [Rs1, Rs2, Disp], Func4("000-")) },
+            { "BLT.T",   new InstructionPattern("BLT.T",   "0-00", [Rs1, Rs2, Disp], Func4("0000")) },
+            { "BGE.T",   new InstructionPattern("BGE.T",   "0-00", [Rs1, Rs2, Disp], Func4("000+")) },
+
+            // ----------------------------------------------------------------
+            // B-type store  opcode=0+00   (indexed: base register + imm12 contiguous)
+            // ----------------------------------------------------------------
+            { "SW.T",    new InstructionPattern("SW.T",    "0+00", [Rs1, Rs2, Disp], Func4("00--")) },
+            { "SH.T",    new InstructionPattern("SH.T",    "0+00", [Rs1, Rs2, Disp], Func4("00-0")) },
+            { "ST.T",    new InstructionPattern("ST.T",    "0+00", [Rs1, Rs2, Disp], Func4("00-+")) },
 
             // ----------------------------------------------------------------
             // D-type (3 sources)  opcode=+-00   (Rd2 slot encodes Rs3)
@@ -223,6 +267,8 @@ internal static class InstructionSet6
             // G-type: imm[23:12](12) | rd1(6) | imm[11:0](12) | opc(2)
             // Y-type: rs1(6) | imm[23:0](24) | opc(2)
             // =================================================================
+            // LWA.T / SWA.T are the absolute-addressed word load and store: a 24-trit
+            // address and no base register. Indexed word access is LW.T / SW.T above.
             { "LWA.T",   new InstructionPattern("LWA.T",   "++",  [Rd1, Imm]) },
             { "LI.T",    new InstructionPattern("LI.T",    "0+",  [Rd1, Imm]) },
             { "SWA.T",   new InstructionPattern("SWA.T",   "-+",  [Rs1, Imm]) },
@@ -249,10 +295,10 @@ internal static class InstructionSet6
             // ----------------------------------------------------------------
             // I-type binary ALU  opcode=00-0  (Imm → rs2 slot; parallel to ternary 00)
             // ----------------------------------------------------------------
-            { "ADDI",    new InstructionPattern("ADDI",  "00-0", [Rd1, Rs1, Imm], Func4("00--")) },
-            { "SLLI",    new InstructionPattern("SLLI",  "00-0", [Rd1, Rs1, Imm], Func4("00-0")) },
-            { "SRLI",    new InstructionPattern("SRLI",  "00-0", [Rd1, Rs1, Imm], Func4("00-+")) },
-            { "SRAI",    new InstructionPattern("SRAI",  "00-0", [Rd1, Rs1, Imm], Func4("000-")) },
+            { "ADDI",    new InstructionPattern("ADDI",  "00-0", [Rd1, Rs1, Imm],   Func4("00--")) },
+            { "SLLI",    new InstructionPattern("SLLI",  "00-0", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, DefaultField))) },
+            { "SRLI",    new InstructionPattern("SRLI",  "00-0", [Rd1, Rs1, Shamt], Merge(Func4("00-+"), Fixed(Rs2, DefaultField))) },
+            { "SRAI",    new InstructionPattern("SRAI",  "00-0", [Rd1, Rs1, Shamt], Merge(Func4("000-"), Fixed(Rs2, DefaultField))) },
             { "SLTIU",   new InstructionPattern("SLTIU", "00-0", [Rd1, Rs1, Imm], Func4("0000")) },
             { "ORI",     new InstructionPattern("ORI",   "00-0", [Rd1, Rs1, Imm], Func4("000+")) },
             { "XORI",    new InstructionPattern("XORI",  "00-0", [Rd1, Rs1, Imm], Func4("00+-")) },
@@ -271,20 +317,15 @@ internal static class InstructionSet6
             // B-type binary branch  opcode=0--0  (unsigned only; parallel to ternary 0-xx00 branch group)
             // BLTU=000+ BGEU=00+-
             // ----------------------------------------------------------------
-            { "BLTU",    new InstructionPattern("BLTU", "0--0", [Rs1, Rs2, Off2],
-                Merge(Func4("000+"), Fixed(Rd1, DefaultField))) },
-            { "BGEU",    new InstructionPattern("BGEU", "0--0", [Rs1, Rs2, Off2],
-                Merge(Func4("00+-"), Fixed(Rd1, DefaultField))) },
+            { "BLTU",    new InstructionPattern("BLTU", "0--0", [Rs1, Rs2, Disp], Func4("00--")) },
+            { "BGEU",    new InstructionPattern("BGEU", "0--0", [Rs1, Rs2, Disp], Func4("00-0")) },
 
             // ----------------------------------------------------------------
             // B-type binary store  opcode=0+-0  (Offset → rd2 slot; parallel to ternary 0+xx00 store)
             // ----------------------------------------------------------------
-            { "SW",      new InstructionPattern("SW",  "0+-0", [Rs1, Rs2, Off2],
-                Merge(Func4("00--"), Fixed(Rd1, DefaultField))) },
-            { "SH",      new InstructionPattern("SH",  "0+-0", [Rs1, Rs2, Off2],
-                Merge(Func4("00-0"), Fixed(Rd1, DefaultField))) },
-            { "SB",      new InstructionPattern("SB",  "0+-0", [Rs1, Rs2, Off2],
-                Merge(Func4("00-+"), Fixed(Rd1, DefaultField))) },
+            { "SW",      new InstructionPattern("SW",  "0+-0", [Rs1, Rs2, Disp], Func4("00--")) },
+            { "SH",      new InstructionPattern("SH",  "0+-0", [Rs1, Rs2, Disp], Func4("00-0")) },
+            { "SB",      new InstructionPattern("SB",  "0+-0", [Rs1, Rs2, Disp], Func4("00-+")) },
 
         };
 
@@ -295,39 +336,54 @@ internal static class InstructionSet6
     /// <summary>
     /// Pseudo-instructions the encoder rewrites before pattern lookup. These are not in
     /// <see cref="Patterns"/>, so the disassembler always emits the architectural form.
-    /// <para>
-    /// All six two-way comparison branches reduce to <c>BCGS.T</c> or <c>BCEG.T</c>: pick the
-    /// three-way branch whose fall-through outcome is the one the predicate excludes, then point
-    /// the remaining two outcomes at the target or at PC+1 (displacement <c>1</c>). Predicates
-    /// that exclude "greater" need the operands swapped, which is free at assembly time.
-    /// </para>
     /// </summary>
     public static readonly IReadOnlyDictionary<string, PseudoExpansion> PseudoExpansions =
         new Dictionary<string, PseudoExpansion>(StringComparer.OrdinalIgnoreCase)
         {
-            // Equality excluded → BCGS.T (equal falls through)
-            { "BNE.T", new PseudoExpansion("BCGS.T", 3, ["$0", "$1", "$2", "$2"]) },
-            { "BGT.T", new PseudoExpansion("BCGS.T", 3, ["$0", "$1", "$2", "1" ]) },
-            { "BLT.T", new PseudoExpansion("BCGS.T", 3, ["$0", "$1", "1",  "$2"]) },
-
-            // "Smaller" excluded → BCEG.T (smaller falls through)
-            { "BGE.T", new PseudoExpansion("BCEG.T", 3, ["$0", "$1", "$2", "$2"]) },
-            { "BEQ.T", new PseudoExpansion("BCEG.T", 3, ["$0", "$1", "$2", "1" ]) },
-
-            // "Greater" excluded → BCEG.T with rs1/rs2 swapped (rs1 ≤ rs2 ≡ rs2 ≥ rs1)
-            { "BLE.T", new PseudoExpansion("BCEG.T", 3, ["$1", "$0", "$2", "$2"]) },
+            // Swapping the sources exchanges the greater and smaller outcomes, so the two
+            // remaining orderings need no encoding of their own (as in RISC-V).
+            { "BGT.T", new PseudoExpansion("BLT.T", 3, ["$1", "$0", "$2"]) },
+            { "BLE.T", new PseudoExpansion("BGE.T", 3, ["$1", "$0", "$2"]) },
         };
 
     // -------------------------------------------------------------------------
     // Field mapping
     // -------------------------------------------------------------------------
 
-    /// <summary>Maps an assembly-level field name to the physical encoding slot it occupies.</summary>
+    /// <summary>
+    /// The two 6-trit slots a 12-trit field occupies, most-significant half first, or
+    /// <c>null</c> when the field fits in a single slot.
+    /// <para>
+    /// I-type splits its immediate around the destination register (rs2 slot holds imm[11:6],
+    /// rd2 slot holds imm[5:0]); B-type has no destination, so its 12 trits are contiguous
+    /// across the rd1 and rd2 slots.
+    /// </para>
+    /// </summary>
+    public static (string Hi, string Lo)? WideFieldSlots(string fieldName) =>
+        string.Equals(fieldName, Imm,  StringComparison.OrdinalIgnoreCase) ? (Rs2, Rd2)
+      : string.Equals(fieldName, Disp, StringComparison.OrdinalIgnoreCase) ? (Rd1, Rd2)
+      : null;
+
+    /// <summary>
+    /// Maps an assembly-level field name to the single physical encoding slot it occupies.
+    /// Not valid for 12-trit fields — use <see cref="MapFieldToSlots"/>.
+    /// </summary>
     public static string MapFieldToSlot(string fieldName) =>
-        string.Equals(fieldName, Imm,  StringComparison.OrdinalIgnoreCase) ? Rs2
-      : string.Equals(fieldName, Off1, StringComparison.OrdinalIgnoreCase) ? Rd1
-      : string.Equals(fieldName, Off2, StringComparison.OrdinalIgnoreCase) ? Rd2
+        string.Equals(fieldName, Off1,  StringComparison.OrdinalIgnoreCase) ? Rd1
+      : string.Equals(fieldName, Off2,  StringComparison.OrdinalIgnoreCase) ? Rd2
+      : string.Equals(fieldName, Shamt, StringComparison.OrdinalIgnoreCase) ? Rd2
       : fieldName;
+
+    /// <summary>
+    /// True when the field is a shift amount: it occupies the rd2 slot alone, leaving the rs2 slot
+    /// free to carry the fill selector, and is range-checked to 4 trits.
+    /// </summary>
+    public static bool IsShamtField(string fieldName) =>
+        string.Equals(fieldName, Shamt, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Maps an assembly-level field name to every encoding slot it occupies.</summary>
+    public static IEnumerable<string> MapFieldToSlots(string fieldName) =>
+        WideFieldSlots(fieldName) is { } slots ? [slots.Hi, slots.Lo] : [MapFieldToSlot(fieldName)];
 
     /// <summary>True when the field carries a PC-relative displacement rather than a register.</summary>
     public static bool IsOffsetField(string fieldName) =>

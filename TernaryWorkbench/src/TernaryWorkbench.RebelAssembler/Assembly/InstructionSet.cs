@@ -68,10 +68,10 @@ internal static class InstructionSet
         { "MAXT.T",  new InstructionPattern("MAXT.T", "00", [Rd1, Rs1, Rs2], new Dictionary<string, string> { { Rd2, "+0" } }) },
 
         // 4.6 SHI
-        { "SLIM.T", new InstructionPattern("SLIM.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "--" } }) },
+        { "SLIN.T", new InstructionPattern("SLIN.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "--" } }) },
         { "SLIZ.T", new InstructionPattern("SLIZ.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "-0" } }) },
         { "SLIP.T", new InstructionPattern("SLIP.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "-+" } }) },
-        { "SRIM.T", new InstructionPattern("SRIM.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+-" } }) },
+        { "SRIN.T", new InstructionPattern("SRIN.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+-" } }) },
         { "SRIZ.T", new InstructionPattern("SRIZ.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+0" } }) },
         { "SRIP.T", new InstructionPattern("SRIP.T", "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "++" } }) },
         { "SC.T",   new InstructionPattern("SC.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "00" } }) },

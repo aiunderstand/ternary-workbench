@@ -69,7 +69,17 @@ internal static class InstructionDisassembler6
 
         var operands = new List<string>();
         foreach (var fieldName in pattern.AssemblyOperands)
-            operands.Add(FormatOperand(fields[MapFieldToSlot(fieldName)], IsOffsetField(fieldName), currentIndex));
+        {
+            if (WideFieldSlots(fieldName) is { } wide)
+            {
+                operands.Add(BalancedTernaryToInt(fields[wide.Hi] + fields[wide.Lo]).ToString());
+                continue;
+            }
+            operands.Add(FormatOperand(
+                fields[MapFieldToSlot(fieldName)],
+                IsOffsetField(fieldName) || IsShamtField(fieldName),
+                currentIndex));
+        }
 
         return operands.Count == 0
             ? pattern.Mnemonic
@@ -150,7 +160,7 @@ internal static class InstructionDisassembler6
 
         // Fields that are supplied by assembly operands (variable)
         var assemblyFields = pattern.AssemblyOperands
-            .Select(MapFieldToSlot)
+            .SelectMany(MapFieldToSlots)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var fixedFields = new[] { Rs1, Rs2, Rd1, Rd2, Func };

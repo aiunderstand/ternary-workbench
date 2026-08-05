@@ -36,31 +36,37 @@ public class Rebel6AssemblerTests
     [InlineData("ADD.T X1, X2, X3",        "0000+-0000+000000+00000000----00")]
     [InlineData("SUB.T X1, X2, X3",        "0000+-0000+000000+00000000-0--00")]
     [InlineData("OR.T X1, X2, X3",         "0000+-0000+000000+000000000+--00")] // func=000+
-    // I-type  opcode=0000  Imm encoded in rs2 slot; func=0000 for ADDI.T
-    [InlineData("ADDI.T X1, X2, X3",       "0000+-0000+000000+00000000000000")]
-    [InlineData("ADDI.T X1, X2, 3",        "0000+-0000+000000+00000000000000")]  // 3 == X3
+    // I-type  opcode=0000  imm12 split around rd1: rs2 slot = imm[11:6], rd2 slot = imm[5:0]
+    [InlineData("ADDI.T X1, X2, 3",        "0000+-00000000000+0000+000000000")]
+    [InlineData("ADDI.T X1, X2, 2187",     "0000+-0000+000000+00000000000000")]  // 2187 = 3 * 3^6, imm[11:6]=3
     // NOP.T = all-zero 32 trits; MV.T (pseudo sharing opcode 0000 and func 0000)
     [InlineData("NOP.T",                   "00000000000000000000000000000000")]
     [InlineData("MV.T X1, X2",            "0000+-00000000000+00000000000000")]
-    // B-type three-way branch  opcode=0-00  off1 in rd1 slot, off2 in rd2 slot
+    // B-type three-way branch  opcode=0-00  two 6-trit displacements: off1 in rd1, off2 in rd2
     [InlineData("BCGS.T X1, X2, 3, -3",   "00000+0000+-0000+00000-000--0-00")]  // func=00--
     [InlineData("BCEG.T X1, X2, 3, -3",   "00000+0000+-0000+00000-000-00-00")]  // func=00-0
-    // Two-way branches are pseudo-instructions over the two three-way forms
-    [InlineData("BEQ.T X1, X2, 0",        "00000+0000+-00000000000+00-00-00")]  // BCEG.T X1, X2, 0, 1
-    // B-type store  opcode=0+00  single displacement in rd2 slot, rd1 zero
-    [InlineData("SW.T X1, X2, 3",         "00000+0000+-0000000000+000--0+00")]
+    // B-type two-way branch  opcode=0-00  one contiguous 12-trit displacement across rd1+rd2
+    [InlineData("BEQ.T X1, X2, 0",        "00000+0000+-00000000000000-+0-00")]  // func=00-+
+    [InlineData("BEQ.T X1, X2, 400",      "00000+0000+-00000+--0-++00-+0-00")]  // beyond 6-trit reach
+    // B-type store  opcode=0+00  indexed: base register + imm12 contiguous across rd1+rd2
+    [InlineData("SW.T X1, X2, 3",         "00000+0000+-0000000000+000--0+00")]  // func=00--
+    [InlineData("SH.T X1, X2, 3",         "00000+0000+-0000000000+000-00+00")]  // func=00-0
+    // I-type indexed load  opcode=-+00  imm12 split around rd1
+    [InlineData("LW.T X1, X2, 3",         "0000+-00000000000+0000+000---+00")]
     // D-type (3 sources + dest)  opcode=+-00
     [InlineData("MAJV.T X1, X2, X3, X4",  "0000+-0000+000000+0000++00--+-00")]
     // X-type (dual dest + dual imm)  opcode=+000
     [InlineData("LI2.T X1, X2, X3, X4",   "0000+00000++00000+0000+-00--+000")]
     // G-type (24-trit immediate split around rd1)  opcode=0+
     [InlineData("LI.T X1, 1",             "00000000000000000+00000000000+0+")]
-    // Y-type (rs1 first, 24-trit immediate)  opcode=-+
-    [InlineData("SWA.T X1, 1",            "00000+00000000000000000000000+-+")]
+    // G-type full-word load: absolute imm24, no base register  opcode=++
+    [InlineData("LWA.T X1, 1",             "00000000000000000+00000000000+++")]
+    // Y-type full-word store: rs1 first, absolute imm24  opcode=-+
+    [InlineData("SWA.T X1, 1",             "00000+00000000000000000000000+-+")]
     // Binary R-type  opcode=---0
     [InlineData("ADD X1, X2, X3",         "0000+-0000+000000+00000000-----0")]
-    // Binary I-type  opcode=00-0  (parallel to ternary 00xx I-type ALU)
-    [InlineData("ADDI X1, X2, X3",        "0000+-0000+000000+00000000--00-0")]
+    // Binary I-type  opcode=00-0  imm12, RV32I parity
+    [InlineData("ADDI X1, X2, 3",         "0000+-00000000000+0000+000--00-0")]
     public void Translate_SingleInstruction_ProducesMachineCode(string assembly, string expected)
     {
         Asm.Translate(assembly).Should().Be(expected);
@@ -124,15 +130,15 @@ public class Rebel6AssemblerTests
     // R-type
     [InlineData("0000+-0000+000000+00000000----00",  "ADD.T X1, X2, X3")]
     [InlineData("0000+-0000+000000+00000000-0--00",  "SUB.T X1, X2, X3")]
-    // I-type
-    [InlineData("0000+-0000+000000+00000000000000",  "ADDI.T X1, X2, X3")]  // rs2 slot → X3
+    // I-type — imm12 is reassembled from the rs2 and rd2 slots and printed as a number
+    [InlineData("0000+-00000000000+0000+000000000",  "ADDI.T X1, X2, 3")]
     // NOP and MV (pseudo)
     [InlineData("00000000000000000000000000000000",  "NOP.T")]
     [InlineData("0000+-00000000000+00000000000000",  "MV.T X1, X2")]
-    // B-type — the three-way forms are canonical; pseudo-instructions have no distinct encoding
+    // B-type three-way (two displacements) and two-way (one 12-trit displacement)
     [InlineData("00000+0000+-0000+00000-000--0-00",  "BCGS.T X1, X2, 3, -3")]
     [InlineData("00000+0000+-0000+00000-000-00-00",  "BCEG.T X1, X2, 3, -3")]
-    [InlineData("00000+0000+-00000000000+00-00-00",  "BCEG.T X1, X2, 0, 1")]  // assembled from BEQ.T
+    [InlineData("00000+0000+-00000+--0-++00-+0-00",  "BEQ.T X1, X2, 400")]
     // D-type
     [InlineData("0000+-0000+000000+0000++00--+-00",  "MAJV.T X1, X2, X3, X4")]
     // X-type
@@ -157,8 +163,12 @@ public class Rebel6AssemblerTests
     // Ternary R-type (opcode --00): func distinguishes operations
     [InlineData("ADD.T X1, X2, X3")]
     [InlineData("SUB.T X1, X2, X3")]
-    [InlineData("SL.T X1, X2, X3")]
-    [InlineData("SR.T X1, X2, X3")]
+    [InlineData("SLN.T X1, X2, X3")]
+    [InlineData("SLZ.T X1, X2, X3")]
+    [InlineData("SLP.T X1, X2, X3")]
+    [InlineData("SRN.T X1, X2, X3")]
+    [InlineData("SRZ.T X1, X2, X3")]
+    [InlineData("SRP.T X1, X2, X3")]
     [InlineData("SLT.T X1, X2, X3")]
     [InlineData("OR.T X1, X2, X3")]
     [InlineData("XOR.T X1, X2, X3")]
@@ -166,36 +176,46 @@ public class Rebel6AssemblerTests
     // Ternary misc (opcode -000)
     [InlineData("CMP.T X1, X2, X3")]
     [InlineData("STI.T X1, X2")]
-    // Ternary I-type (opcode 0000)
-    [InlineData("ADDI.T X1, X2, X3")]
-    [InlineData("SLI.T X1, X2, X3")]
-    [InlineData("SRI.T X1, X2, X3")]
-    [InlineData("SLTI.T X1, X2, X3")]
-    [InlineData("ORI.T X1, X2, X3")]
-    [InlineData("XORI.T X1, X2, X3")]
-    [InlineData("ANDI.T X1, X2, X3")]
+    // Ternary I-type (opcode 0000, imm12 split around rd1)
+    [InlineData("ADDI.T X1, X2, 3")]
+    [InlineData("ADDI.T X1, X2, -265720")]
+    [InlineData("SLIN.T X1, X2, 3")]
+    [InlineData("SLIZ.T X1, X2, 3")]
+    [InlineData("SLIP.T X1, X2, 3")]
+    [InlineData("SRIN.T X1, X2, 3")]
+    [InlineData("SRIZ.T X1, X2, 3")]
+    [InlineData("SRIP.T X1, X2, 3")]
+    [InlineData("SC.T X1, X2, 3")]
+    [InlineData("SLTI.T X1, X2, 3")]
+    [InlineData("ORI.T X1, X2, 3")]
+    [InlineData("XORI.T X1, X2, 3")]
+    [InlineData("ANDI.T X1, X2, 3")]
     // Pseudo-instructions (opcode 0000, share func with ADDI.T)
     [InlineData("NOP.T")]
     [InlineData("MV.T X1, X2")]
-    // Ternary I-type load (opcode -+00)
-    [InlineData("LW.T X1, X2, X3")]
-    [InlineData("LH.T X1, X2, X3")]
-    [InlineData("LT.T X1, X2, X3")]
-    [InlineData("JALR.T X1, X2, X3")]
-    // Ternary three-way branch (opcode 0-00; displacements in rd1 and rd2 slots)
+    // Ternary I-type indexed load (opcode -+00, base register + imm12)
+    [InlineData("LW.T X1, X2, 3")]
+    [InlineData("LH.T X1, X2, 3")]
+    [InlineData("LT.T X1, X2, 3")]
+    [InlineData("JALR.T X1, X2, 3")]
+    // Ternary three-way branch (opcode 0-00; two 6-trit displacements in rd1 and rd2 slots)
     [InlineData("BCGS.T X1, X2, 3, -3")]
     [InlineData("BCEG.T X1, X2, 3, -3")]
-    // Two-way branch pseudo-instructions over BCGS.T / BCEG.T
+    // Ternary two-way branch (opcode 0-00; one 12-trit displacement across rd1+rd2)
     [InlineData("BEQ.T X1, X2, 4")]
     [InlineData("BNE.T X1, X2, 5")]
     [InlineData("BLT.T X1, X2, 6")]
-    [InlineData("BGT.T X1, X2, 7")]
     [InlineData("BGE.T X1, X2, 8")]
+    [InlineData("BEQ.T X1, X2, -265720")]
+    [InlineData("BNE.T X1, X2, 265720")]
+    // Two-way pseudo-instructions (operand swap)
+    [InlineData("BGT.T X1, X2, 7")]
     [InlineData("BLE.T X1, X2, 9")]
-    // Ternary B-type store (opcode 0+00, displacement in rd2)
-    [InlineData("SW.T X1, X2, 0")]
+    // Ternary B-type indexed store (opcode 0+00, base register + imm12)
+    [InlineData("SW.T X1, X2, -3")]
     [InlineData("SH.T X1, X2, 0")]
-    [InlineData("ST.T X1, X2, 0")]
+    [InlineData("ST.T X1, X2, 3")]
+    [InlineData("ST.T X1, X2, 265720")]
     // D-type (opcode +-00): 4 operands
     [InlineData("MAJV.T X1, X2, X3, X4")]
     [InlineData("MINV.T X1, X2, X3, X4")]
@@ -218,28 +238,28 @@ public class Rebel6AssemblerTests
     [InlineData("OR X1, X2, X3")]
     [InlineData("XOR X1, X2, X3")]
     [InlineData("AND X1, X2, X3")]
-    // Binary I-type (opcode 00-0)
-    [InlineData("ADDI X1, X2, X3")]
-    [InlineData("SLLI X1, X2, X3")]
-    [InlineData("SRLI X1, X2, X3")]
-    [InlineData("SRAI X1, X2, X3")]
-    [InlineData("SLTIU X1, X2, X3")]
-    [InlineData("ORI X1, X2, X3")]
-    [InlineData("XORI X1, X2, X3")]
-    [InlineData("ANDI X1, X2, X3")]
-    // Binary load (opcode -+-0)
-    [InlineData("LW X1, X2, X3")]
-    [InlineData("LH X1, X2, X3")]
-    [InlineData("LB X1, X2, X3")]
-    [InlineData("LHU X1, X2, X3")]
-    [InlineData("LBU X1, X2, X3")]
-    // Binary branch (opcode 0--0 — unsigned only)
+    // Binary I-type (opcode 00-0, imm12 — RV32I parity)
+    [InlineData("ADDI X1, X2, 3")]
+    [InlineData("SLLI X1, X2, 3")]
+    [InlineData("SRLI X1, X2, 3")]
+    [InlineData("SRAI X1, X2, 3")]
+    [InlineData("SLTIU X1, X2, 3")]
+    [InlineData("ORI X1, X2, 3")]
+    [InlineData("XORI X1, X2, 3")]
+    [InlineData("ANDI X1, X2, 3")]
+    // Binary load (opcode -+-0, imm12)
+    [InlineData("LW X1, X2, 3")]
+    [InlineData("LH X1, X2, 3")]
+    [InlineData("LB X1, X2, 3")]
+    [InlineData("LHU X1, X2, 3")]
+    [InlineData("LBU X1, X2, 3")]
+    // Binary branch (opcode 0--0, imm12 — unsigned only)
     [InlineData("BLTU X1, X2, 0")]
-    [InlineData("BGEU X1, X2, 0")]
-    // Binary store (opcode 0+-0)
+    [InlineData("BGEU X1, X2, 2000")]
+    // Binary store (opcode 0+-0, imm12)
     [InlineData("SW X1, X2, 0")]
-    [InlineData("SH X1, X2, 0")]
-    [InlineData("SB X1, X2, 0")]
+    [InlineData("SH X1, X2, 3")]
+    [InlineData("SB X1, X2, -2000")]
     public void RoundTrip_Assemble_Disassemble_Reassemble_SameMachineCode(string assembly)
     {
         var machineCode  = Asm.Translate(assembly);
@@ -262,22 +282,38 @@ public class Rebel6AssemblerTests
     }
 
     [Theory]
-    // Every two-way comparison branch is a pseudo-instruction over BCGS.T or BCEG.T.
-    // Displacement 1 steers an outcome to the fall-through path (errata E-1).
-    [InlineData("BEQ.T X1, X2, 5", "BCEG.T X1, X2, 5, 1")]
-    [InlineData("BNE.T X1, X2, 5", "BCGS.T X1, X2, 5, 5")]
-    [InlineData("BLT.T X1, X2, 5", "BCGS.T X1, X2, 1, 5")]
-    [InlineData("BGT.T X1, X2, 5", "BCGS.T X1, X2, 5, 1")]
-    [InlineData("BGE.T X1, X2, 5", "BCEG.T X1, X2, 5, 5")]
-    [InlineData("BLE.T X1, X2, 5", "BCEG.T X2, X1, 5, 5")]  // operands swapped
-    public void TwoWayBranches_ArePseudoInstructionsOverThreeWayForms(string pseudo, string architectural)
+    // Swapping the sources exchanges the greater and smaller outcomes, so BGT.T and BLE.T need
+    // no encoding of their own — as in RISC-V.
+    [InlineData("BGT.T X1, X2, 5", "BLT.T X2, X1, 5")]
+    [InlineData("BLE.T X1, X2, 5", "BGE.T X2, X1, 5")]
+    public void OrderingPseudoBranches_AreOperandSwapsOfTheirArchitecturalForm(string pseudo, string architectural)
     {
         var mc = Asm.Translate(pseudo);
 
         mc.Should().Be(Asm.Translate(architectural),
             because: $"'{pseudo}' must encode exactly as '{architectural}'");
         Asm.Disassemble(mc).Should().Be(architectural,
-            because: "pseudo-instructions have no encoding of their own, so the three-way form is canonical");
+            because: "pseudo-instructions have no encoding of their own, so the swapped form is canonical");
+    }
+
+    [Fact]
+    public void TwoWayBranch_DisplacementSpansBothSlots()
+    {
+        // BEQ.T reads rd1+rd2 as one contiguous 12-trit displacement, so it reaches far past the
+        // ±364 limit of a single 6-trit slot (errata E-2).
+        var mc = Asm.Translate("BEQ.T X1, X2, 265720");
+        mc[12..24].Should().Be("++++++++++++", because: "+265720 is the largest 12-trit displacement");
+        mc[24..28].Should().Be("00-+", because: "BEQ.T uses func 00-+ in branch group 0-00");
+
+        Asm.Disassemble(mc).Should().Be("BEQ.T X1, X2, 265720");
+    }
+
+    [Fact]
+    public void TwoWayBranch_ReachesFurtherThanRv32i()
+    {
+        // RV32I's B-type reaches ±1024 instructions; a 6-trit slot reaches ±364.
+        var act = () => Asm.Translate("BLT.T X1, X2, 2000");
+        act.Should().NotThrow(because: "the 12-trit displacement covers ±265720 instructions");
     }
 
     [Fact]
@@ -315,10 +351,22 @@ public class Rebel6AssemblerTests
     }
 
     [Fact]
-    public void AddiT_NumericAndRegisterFormProduceSameCode()
+    public void IndexedAndAbsoluteWordAccess_AreDistinctInstructions()
     {
-        // 3 in 6-trit BT = "0000+0" = register X3
-        Asm.Translate("ADDI.T X1, X2, 3").Should().Be(Asm.Translate("ADDI.T X1, X2, X3"));
+        // Indexed (LW.T/SW.T): base register + imm12, in the 4-trit-opcode load/store groups.
+        // Absolute (LWA.T/SWA.T): a 24-trit address and no base register, in the G/Y long-immediate
+        // groups. They occupy different opcode groups and never collide (errata E-2).
+        Asm.Translate("LW.T X1, X2, 3")[^4..].Should().Be("-+00", because: "LW.T is I-type, opcode -+00");
+        Asm.Translate("SW.T X1, X2, 3")[^4..].Should().Be("0+00", because: "SW.T is B-type, opcode 0+00");
+        Asm.Translate("LWA.T X1, 1")[^2..].Should().Be("++",   because: "LWA.T is G-type, opcode ++");
+        Asm.Translate("SWA.T X1, 1")[^2..].Should().Be("-+",   because: "SWA.T is Y-type, opcode -+");
+
+        // The absolute forms reach the whole 24-trit address space in one instruction, which the
+        // indexed forms cannot: imm12 tops out at ±265720.
+        var farAbsolute = () => Asm.Translate("LWA.T X1, 5000000");
+        farAbsolute.Should().NotThrow();
+        var farIndexed = () => Asm.Translate("LW.T X1, X2, 5000000");
+        farIndexed.Should().Throw<InvalidOperationException>();
     }
 
     // =========================================================================
@@ -329,7 +377,7 @@ public class Rebel6AssemblerTests
     public void StandardInstructions_LastTrit_IsZero()
     {
         // All 4-trit opcode instructions must have '0' as last trit (mc[31])
-        var standardMnemonics = new[] { "ADD.T X1, X2, X3", "ADDI.T X1, X2, X3", "BEQ.T X1, X2, 0", "ADD X1, X2, X3" };
+        var standardMnemonics = new[] { "ADD.T X1, X2, X3", "ADDI.T X1, X2, 3", "BEQ.T X1, X2, 0", "ADD X1, X2, X3" };
         foreach (var mnemonic in standardMnemonics)
         {
             var mc = Asm.Translate(mnemonic);
@@ -353,26 +401,96 @@ public class Rebel6AssemblerTests
     [Fact]
     public void RType_AllDifferentFuncs_ProduceDifferentEncodings()
     {
-        var ops = new[] { "ADD.T", "SUB.T", "SL.T", "SR.T", "SLT.T", "OR.T", "XOR.T", "AND.T" };
+        var ops = new[] { "ADD.T", "SUB.T", "SLZ.T", "SRZ.T", "SLT.T", "OR.T", "XOR.T", "AND.T" };
         var codes = ops.Select(op => Asm.Translate($"{op} X1, X2, X3")).ToList();
         codes.Should().OnlyHaveUniqueItems("R-type ternary ops share opcode but have distinct func values");
     }
 
     [Fact]
-    public void SingleDisplacementInstructions_UseRd2SlotAndLeaveRd1Zero()
+    public void Stores_UseContiguous12TritImmediate()
     {
-        // SW.T X1, X2, 1: stores carry one displacement, in the rd2 slot (mc[18..24])
-        var mc = Asm.Translate("SW.T X1, X2, 1");
-        mc[12..18].Should().Be("000000", because: "off1 is unused by stores and must be zero");
-        mc[18..24].Should().Be("00000+", because: "off2=1 in balanced ternary 6-trit is '00000+'");
+        // SH.T X1, X2, 2000: B-type stores carry imm12 across rd1+rd2, matching RV32I S-type
+        var mc = Asm.Translate("SH.T X1, X2, 2000");
+        mc[12..24].Should().Be("0000+0-+-0+-", because: "2000 as a 12-trit balanced-ternary value");
+        Asm.Disassemble(mc).Should().Be("SH.T X1, X2, 2000");
+    }
+
+    [Theory]
+    // The three fills share one func and differ only in the fill selector: the rs2 slot for
+    // immediate shifts, the rd2 slot for register shifts. Func alone does not identify a shift.
+    [InlineData("SLIN.T X1, X2, 5", 6, 12, "00000-")]
+    [InlineData("SLIZ.T X1, X2, 5", 6, 12, "000000")]
+    [InlineData("SLIP.T X1, X2, 5", 6, 12, "00000+")]
+    [InlineData("SLN.T X1, X2, X3", 18, 24, "00000-")]
+    [InlineData("SLZ.T X1, X2, X3", 18, 24, "000000")]
+    [InlineData("SLP.T X1, X2, X3", 18, 24, "00000+")]
+    public void ShiftFillVariants_DifferOnlyInTheFillTrit(string assembly, int from, int to, string expectedFill)
+    {
+        var mc = Asm.Translate(assembly);
+        mc[from..to].Should().Be(expectedFill, because: "one trit selects among the three fills");
+        Asm.Disassemble(mc).Should().Be(assembly, because: "the fill trit names the instruction");
     }
 
     [Fact]
-    public void ITypeInstructions_ImmInRs2Slot()
+    public void ShiftFillVariants_ShareOneFunc()
     {
-        // ADDI.T X1, X2, 1: immediate=1 should be in rs2 slot (mc[6..12])
+        // All three left-immediate fills carry func 00--; only the rs2 slot differs.
+        var codes = new[] { "SLIN.T X1, X2, 5", "SLIZ.T X1, X2, 5", "SLIP.T X1, X2, 5" }
+            .Select(Asm.Translate).ToList();
+
+        codes.Select(c => c[24..28]).Distinct().Should().ContainSingle()
+            .Which.Should().Be("00--", because: "the fill costs no func slot");
+        codes.Should().OnlyHaveUniqueItems(because: "the fill trit still distinguishes the encodings");
+    }
+
+    [Fact]
+    public void TernaryShiftAmount_IsRangeLimitedToFourTrits()
+    {
+        var tooLarge = () => Asm.Translate("SLIZ.T X1, X2, 41");
+        tooLarge.Should().Throw<InvalidOperationException>().WithMessage("*41*");
+    }
+
+    [Fact]
+    public void BinaryShiftImmediates_AreRangeLimitedToShamt()
+    {
+        // RV32I's shamt is a 5-bit field (0..31), carried in 4 trits (±40). It occupies the same
+        // slot pair as imm12 but is range-checked far more tightly.
+        Asm.Translate("SLLI X1, X2, 31").Should().NotBeNull(because: "31 is the largest RV32I shift amount");
+
+        var tooLarge = () => Asm.Translate("SLLI X1, X2, 41");
+        tooLarge.Should().Throw<InvalidOperationException>().WithMessage("*41*");
+
+        // A general immediate on the same opcode group is not restricted
+        var wideImm = () => Asm.Translate("ADDI X1, X2, 2000");
+        wideImm.Should().NotThrow(because: "ADDI takes imm12, not shamt");
+    }
+
+    [Fact]
+    public void BinaryInstructions_HaveRv32iImmediateRange()
+    {
+        // Every RV32I-parity instruction takes imm12; RV32I's own I/S/B immediates are 12 bits.
+        var cases = new[] { "ADDI X1, X2, 2000", "LW X1, X2, 2000", "SW X1, X2, 2000", "BLTU X1, X2, 2000" };
+        foreach (var asmText in cases)
+        {
+            var act = () => Asm.Translate(asmText);
+            act.Should().NotThrow(because: $"'{asmText}' must accept the full RV32I immediate range");
+        }
+    }
+
+    [Fact]
+    public void ITypeInstructions_ImmSplitAroundDestinationRegister()
+    {
+        // I-type needs rd1 for the destination, so its imm12 straddles it:
+        // rs2 slot holds imm[11:6], rd2 slot holds imm[5:0].
         var mc = Asm.Translate("ADDI.T X1, X2, 1");
-        mc[6..12].Should().Be("00000+", because: "immediate=1 in balanced ternary 6-trit is '00000+'");
+        mc[6..12].Should().Be("000000",  because: "imm[11:6] of 1 is zero");
+        mc[12..18].Should().Be("00000+", because: "rd1=X1 sits between the immediate halves");
+        mc[18..24].Should().Be("00000+", because: "imm[5:0] of 1 is '00000+'");
+
+        // 3^6 = 729 has imm[5:0] = 0 and imm[11:6] = 1, exercising the upper half
+        var upper = Asm.Translate("ADDI.T X1, X2, 729");
+        upper[6..12].Should().Be("00000+", because: "imm[11:6] of 729 is 1");
+        upper[18..24].Should().Be("000000", because: "imm[5:0] of 729 is zero");
     }
 
     [Fact]
@@ -460,10 +578,9 @@ public class Rebel6AssemblerTests
         var result = Asm.AssembleInstructions(source);
 
         // BEQ is instruction index 1; start is index 0; offset = 0-1 = -1.
-        // BEQ.T expands to BCEG.T X0, X0, start, 1 — the target lands in off1 (rd1 slot).
+        // The displacement spans rd1+rd2 as one contiguous 12-trit field.
         var beqMc = result[1].MachineCode;
-        beqMc[12..18].Should().Be("00000-", because: "PC-relative offset -1 encodes as '00000-'");
-        beqMc[18..24].Should().Be("00000+", because: "the greater outcome is steered to PC+1");
+        beqMc[12..24].Should().Be("00000000000-", because: "PC-relative offset -1 in 12 trits");
     }
 
     [Fact]
@@ -479,7 +596,7 @@ public class Rebel6AssemblerTests
 
         // BEQ is at index 0; target is at index 2; offset = 2-0 = 2
         var beqMc = result[0].MachineCode;
-        beqMc[12..18].Should().Be("0000+-", because: "PC-relative offset 2 encodes as '0000+-'");
+        beqMc[12..24].Should().Be("0000000000+-", because: "PC-relative offset 2 in 12 trits");
     }
 
     [Fact]
@@ -548,18 +665,26 @@ public class Rebel6AssemblerTests
     }
 
     [Fact]
-    public void Error_BranchOffsetOutOfRange_ThrowsInvalidOperationException()
+    public void Error_ThreeWayBranchOffsetOutOfRange_ThrowsInvalidOperationException()
     {
-        // 400 is outside 6-trit range [-364, +364]
-        var act = () => Asm.Translate("BEQ.T X1, X2, 400");
+        // Each three-way displacement is a single 6-trit slot: [-364, +364]
+        var act = () => Asm.Translate("BCGS.T X1, X2, 400, 0");
         act.Should().Throw<InvalidOperationException>().WithMessage("*400*");
+    }
+
+    [Fact]
+    public void Error_TwoWayBranchDisplacementOutOfRange_ThrowsInvalidOperationException()
+    {
+        // The 12-trit displacement covers [-265720, +265720]
+        var act = () => Asm.Translate("BEQ.T X1, X2, 265721");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*265721*");
     }
 
     [Fact]
     public void Error_PseudoBranch_WrongOperandCount_ThrowsInvalidOperationException()
     {
-        var act = () => Asm.Translate("BNE.T X1, X2, 0, 0");  // 4 operands: that is BCGS.T
-        act.Should().Throw<InvalidOperationException>().WithMessage("*BNE.T*");
+        var act = () => Asm.Translate("BGT.T X1, X2, 0, 0");  // BGT.T takes 3 operands
+        act.Should().Throw<InvalidOperationException>().WithMessage("*BGT.T*");
     }
 
     [Fact]

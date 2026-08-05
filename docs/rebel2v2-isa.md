@@ -69,10 +69,10 @@ Immediates (imm2) are 2-trit balanced integers in range [−4, 4].
 | PTI.T | U | 00 | rd1, rs1 | 0+ | Ternary ALU | rd1 = positive ternary inversion(rs1) |
 | REM.T | R | -- | rd1, rs1, rs2 | 0+ | Ternary ALU | rd1 = rs1 rem rs2 (truncated, towards zero) |
 | SC.T | I | 0+ | rd1, rs1, imm2 | 00 | Ternary Shift | Cyclic shift by imm2 |
-| SLIM.T | I | 0+ | rd1, rs1, imm2 | -- | Ternary Shift | Shift left by imm2, fill with − |
+| SLIN.T | I | 0+ | rd1, rs1, imm2 | -- | Ternary Shift | Shift left by imm2, fill with − |
 | SLIZ.T | I | 0+ | rd1, rs1, imm2 | -0 | Ternary Shift | Shift left by imm2, fill with 0 |
 | SLIP.T | I | 0+ | rd1, rs1, imm2 | -+ | Ternary Shift | Shift left by imm2, fill with + |
-| SRIM.T | I | 0+ | rd1, rs1, imm2 | +- | Ternary Shift | Shift right by imm2, fill with − |
+| SRIN.T | I | 0+ | rd1, rs1, imm2 | +- | Ternary Shift | Shift right by imm2, fill with − |
 | SRIZ.T | I | 0+ | rd1, rs1, imm2 | +0 | Ternary Shift | Shift right by imm2, fill with 0 |
 | SRIP.T | I | 0+ | rd1, rs1, imm2 | ++ | Ternary Shift | Shift right by imm2, fill with + |
 | ST2.T | U | 00 | rs1, rs2 | -+ | Ternary Store | memory[rs1] = rs2 (store trit-pair) |
