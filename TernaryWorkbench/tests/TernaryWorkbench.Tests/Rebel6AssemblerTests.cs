@@ -42,8 +42,13 @@ public class Rebel6AssemblerTests
     // NOP.T = all-zero 32 trits; MV.T (pseudo sharing opcode 0000 and func 0000)
     [InlineData("NOP.T",                   "00000000000000000000000000000000")]
     [InlineData("MV.T X1, X2",            "0000+-00000000000+00000000000000")]
-    // B-type branch  opcode=0-00  offset in rd2 slot
-    [InlineData("BEQ.T X1, X2, 0",        "00000+0000+-00000000000000--0-00")]
+    // B-type three-way branch  opcode=0-00  off1 in rd1 slot, off2 in rd2 slot
+    [InlineData("BCGS.T X1, X2, 3, -3",   "00000+0000+-0000+00000-000--0-00")]  // func=00--
+    [InlineData("BCEG.T X1, X2, 3, -3",   "00000+0000+-0000+00000-000-00-00")]  // func=00-0
+    // Two-way branches are pseudo-instructions over the two three-way forms
+    [InlineData("BEQ.T X1, X2, 0",        "00000+0000+-00000000000+00-00-00")]  // BCEG.T X1, X2, 0, 1
+    // B-type store  opcode=0+00  single displacement in rd2 slot, rd1 zero
+    [InlineData("SW.T X1, X2, 3",         "00000+0000+-0000000000+000--0+00")]
     // D-type (3 sources + dest)  opcode=+-00
     [InlineData("MAJV.T X1, X2, X3, X4",  "0000+-0000+000000+0000++00--+-00")]
     // X-type (dual dest + dual imm)  opcode=+000
@@ -124,8 +129,10 @@ public class Rebel6AssemblerTests
     // NOP and MV (pseudo)
     [InlineData("00000000000000000000000000000000",  "NOP.T")]
     [InlineData("0000+-00000000000+00000000000000",  "MV.T X1, X2")]
-    // B-type
-    [InlineData("00000+0000+-00000000000000--0-00",  "BEQ.T X1, X2, 0")]
+    // B-type — the three-way forms are canonical; pseudo-instructions have no distinct encoding
+    [InlineData("00000+0000+-0000+00000-000--0-00",  "BCGS.T X1, X2, 3, -3")]
+    [InlineData("00000+0000+-0000+00000-000-00-00",  "BCEG.T X1, X2, 3, -3")]
+    [InlineData("00000+0000+-00000000000+00-00-00",  "BCEG.T X1, X2, 0, 1")]  // assembled from BEQ.T
     // D-type
     [InlineData("0000+-0000+000000+0000++00--+-00",  "MAJV.T X1, X2, X3, X4")]
     // X-type
@@ -175,12 +182,17 @@ public class Rebel6AssemblerTests
     [InlineData("LH.T X1, X2, X3")]
     [InlineData("LT.T X1, X2, X3")]
     [InlineData("JALR.T X1, X2, X3")]
-    // Ternary B-type branch (opcode 0-00, offset in rd2)
-    [InlineData("BEQ.T X1, X2, 0")]
-    [InlineData("BNE.T X1, X2, 0")]
-    [InlineData("BLT.T X1, X2, 0")]
-    [InlineData("BGE.T X1, X2, 0")]
-    // Ternary B-type store (opcode 0+00, offset in rd2)
+    // Ternary three-way branch (opcode 0-00; displacements in rd1 and rd2 slots)
+    [InlineData("BCGS.T X1, X2, 3, -3")]
+    [InlineData("BCEG.T X1, X2, 3, -3")]
+    // Two-way branch pseudo-instructions over BCGS.T / BCEG.T
+    [InlineData("BEQ.T X1, X2, 4")]
+    [InlineData("BNE.T X1, X2, 5")]
+    [InlineData("BLT.T X1, X2, 6")]
+    [InlineData("BGT.T X1, X2, 7")]
+    [InlineData("BGE.T X1, X2, 8")]
+    [InlineData("BLE.T X1, X2, 9")]
+    // Ternary B-type store (opcode 0+00, displacement in rd2)
     [InlineData("SW.T X1, X2, 0")]
     [InlineData("SH.T X1, X2, 0")]
     [InlineData("ST.T X1, X2, 0")]
@@ -249,6 +261,59 @@ public class Rebel6AssemblerTests
         Asm.Translate("MV.T X1, X2").Should().Be(Asm.Translate("ADDI.T X1, X2, 0"));
     }
 
+    [Theory]
+    // Every two-way comparison branch is a pseudo-instruction over BCGS.T or BCEG.T.
+    // Displacement 1 steers an outcome to the fall-through path (errata E-1).
+    [InlineData("BEQ.T X1, X2, 5", "BCEG.T X1, X2, 5, 1")]
+    [InlineData("BNE.T X1, X2, 5", "BCGS.T X1, X2, 5, 5")]
+    [InlineData("BLT.T X1, X2, 5", "BCGS.T X1, X2, 1, 5")]
+    [InlineData("BGT.T X1, X2, 5", "BCGS.T X1, X2, 5, 1")]
+    [InlineData("BGE.T X1, X2, 5", "BCEG.T X1, X2, 5, 5")]
+    [InlineData("BLE.T X1, X2, 5", "BCEG.T X2, X1, 5, 5")]  // operands swapped
+    public void TwoWayBranches_ArePseudoInstructionsOverThreeWayForms(string pseudo, string architectural)
+    {
+        var mc = Asm.Translate(pseudo);
+
+        mc.Should().Be(Asm.Translate(architectural),
+            because: $"'{pseudo}' must encode exactly as '{architectural}'");
+        Asm.Disassemble(mc).Should().Be(architectural,
+            because: "pseudo-instructions have no encoding of their own, so the three-way form is canonical");
+    }
+
+    [Fact]
+    public void ThreeWayBranches_DisplacementsOccupyRd1AndRd2Slots()
+    {
+        var bcgs = Asm.Translate("BCGS.T X1, X2, 1, -1");
+        bcgs[12..18].Should().Be("00000+", because: "off1 (greater target) sits in the rd1 slot");
+        bcgs[18..24].Should().Be("00000-", because: "off2 (smaller target) sits in the rd2 slot");
+        bcgs[24..28].Should().Be("00--",   because: "BCGS.T uses func 00-- in branch group 0-00");
+        bcgs[28..32].Should().Be("0-00",   because: "three-way branches share the ternary branch opcode group");
+
+        var bceg = Asm.Translate("BCEG.T X1, X2, 1, -1");
+        bceg[12..18].Should().Be("00000+", because: "off1 (equal target) sits in the rd1 slot");
+        bceg[18..24].Should().Be("00000-", because: "off2 (greater target) sits in the rd2 slot");
+        bceg[24..28].Should().Be("00-0",   because: "BCEG.T uses func 00-0 in branch group 0-00");
+    }
+
+    [Fact]
+    public void ThreeWayBranch_Labels_BothTargetsResolvePcRelative()
+    {
+        const string source = """
+            back:
+            NOP.T
+            BCGS.T X1, X2, back, fwd
+            NOP.T
+            fwd:
+            NOP.T
+            """;
+        var result = Asm.AssembleInstructions(source);
+
+        // BCGS.T is at index 1; back is index 0 (offset -1); fwd is index 3 (offset +2)
+        var mc = result[1].MachineCode;
+        mc[12..18].Should().Be("00000-", because: "off1 = 0 - 1 = -1");
+        mc[18..24].Should().Be("0000+-", because: "off2 = 3 - 1 = 2");
+    }
+
     [Fact]
     public void AddiT_NumericAndRegisterFormProduceSameCode()
     {
@@ -294,11 +359,12 @@ public class Rebel6AssemblerTests
     }
 
     [Fact]
-    public void BranchInstructions_BranchOffsetInRd2Slot()
+    public void SingleDisplacementInstructions_UseRd2SlotAndLeaveRd1Zero()
     {
-        // BEQ.T X1, X2, 1: offset=1 should be in rd2 slot (mc[18..24])
-        var mc = Asm.Translate("BEQ.T X1, X2, 1");
-        mc[18..24].Should().Be("00000+", because: "offset=1 in balanced ternary 6-trit is '00000+'");
+        // SW.T X1, X2, 1: stores carry one displacement, in the rd2 slot (mc[18..24])
+        var mc = Asm.Translate("SW.T X1, X2, 1");
+        mc[12..18].Should().Be("000000", because: "off1 is unused by stores and must be zero");
+        mc[18..24].Should().Be("00000+", because: "off2=1 in balanced ternary 6-trit is '00000+'");
     }
 
     [Fact]
@@ -393,9 +459,11 @@ public class Rebel6AssemblerTests
             """;
         var result = Asm.AssembleInstructions(source);
 
-        // BEQ is instruction index 1; start is index 0; offset = 0-1 = -1
+        // BEQ is instruction index 1; start is index 0; offset = 0-1 = -1.
+        // BEQ.T expands to BCEG.T X0, X0, start, 1 — the target lands in off1 (rd1 slot).
         var beqMc = result[1].MachineCode;
-        beqMc[18..24].Should().Be("00000-", because: "PC-relative offset -1 encodes as '00000-'");
+        beqMc[12..18].Should().Be("00000-", because: "PC-relative offset -1 encodes as '00000-'");
+        beqMc[18..24].Should().Be("00000+", because: "the greater outcome is steered to PC+1");
     }
 
     [Fact]
@@ -411,7 +479,7 @@ public class Rebel6AssemblerTests
 
         // BEQ is at index 0; target is at index 2; offset = 2-0 = 2
         var beqMc = result[0].MachineCode;
-        beqMc[18..24].Should().Be("0000+-", because: "PC-relative offset 2 encodes as '0000+-'");
+        beqMc[12..18].Should().Be("0000+-", because: "PC-relative offset 2 encodes as '0000+-'");
     }
 
     [Fact]
@@ -485,6 +553,13 @@ public class Rebel6AssemblerTests
         // 400 is outside 6-trit range [-364, +364]
         var act = () => Asm.Translate("BEQ.T X1, X2, 400");
         act.Should().Throw<InvalidOperationException>().WithMessage("*400*");
+    }
+
+    [Fact]
+    public void Error_PseudoBranch_WrongOperandCount_ThrowsInvalidOperationException()
+    {
+        var act = () => Asm.Translate("BNE.T X1, X2, 0, 0");  // 4 operands: that is BCGS.T
+        act.Should().Throw<InvalidOperationException>().WithMessage("*BNE.T*");
     }
 
     [Fact]

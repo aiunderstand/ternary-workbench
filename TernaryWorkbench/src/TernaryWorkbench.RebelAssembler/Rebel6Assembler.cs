@@ -11,7 +11,8 @@ namespace TernaryWorkbench.RebelAssembler;
 /// <list type="bullet">
 ///   <item>Instructions are 32 trits wide (vs 10 trits in REBEL-2).</item>
 ///   <item>729 registers (6-trit address, vs 9 registers in REBEL-2); X0 hardwired zero.</item>
-///   <item>65 instruction patterns: 36 ternary-native + 27 binary (RV32I-compatible) + 2 pseudo (NOP.T, MV.T). 8 instruction formats: R, I, B, D, X (4-trit opcode), G, Y (2-trit opcode), L (RV32I pass-through).</item>
+///   <item>69 instruction patterns: 34 ternary-native + 27 binary (RV32I-compatible) + 8 pseudo (NOP.T, MV.T and the six two-way comparison branches). 8 instruction formats: R, I, B, D, X (4-trit opcode), G, Y (2-trit opcode), L (RV32I pass-through).</item>
+///   <item><b>Three-way branches</b> (B-type, both displacement slots used): <c>BCGS.T rs1, rs2, off1, off2</c> — greater → PC+off1, smaller → PC+off2, equal → PC+1; and <c>BCEG.T rs1, rs2, off1, off2</c> — equal → PC+off1, greater → PC+off2, smaller → PC+1. These are the only architectural ternary branches. BEQ.T, BNE.T, BLT.T, BGT.T, BGE.T and BLE.T are pseudo-instructions over them. See docs/rebel6-isa.md errata E-1.</item>
 ///   <item>Dedicated 4-trit func field (not encoded in Rd2 as in REBEL-2).</item>
 ///   <item>Register width 24 trits (vs 2 trits in REBEL-2).</item>
 ///   <item><b>NOP.T</b> encodes as all-zero 32 trits (opcode <c>0000</c>, func <c>0000</c>).</item>

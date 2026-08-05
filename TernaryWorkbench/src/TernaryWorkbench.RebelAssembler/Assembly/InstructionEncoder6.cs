@@ -23,10 +23,13 @@ internal static class InstructionEncoder6
     {
         patterns ??= Patterns;
         var mnemonic = instruction.Parts[0];
-        var pattern  = ResolvePattern(mnemonic, patterns)
+        var operands = instruction.Parts.Skip(1).ToList();
+
+        ExpandPseudo(ref mnemonic, operands, instruction.LineNumber);
+
+        var pattern = ResolvePattern(mnemonic, patterns)
             ?? throw new InvalidOperationException($"Unknown mnemonic '{mnemonic}' on line {instruction.LineNumber}.");
 
-        var operands = instruction.Parts.Skip(1).ToList();
         if (operands.Count != pattern.AssemblyOperands.Count)
             throw new InvalidOperationException(
                 $"Mnemonic '{mnemonic}' expects {pattern.AssemblyOperands.Count} operand(s) but received {operands.Count} on line {instruction.LineNumber}.");
@@ -57,16 +60,10 @@ internal static class InstructionEncoder6
         for (var i = 0; i < operands.Count; i++)
         {
             var fieldName   = pattern.AssemblyOperands[i];
-            // Map assembly field names to encoding slots
-            var targetField = fieldName switch
-            {
-                var f when string.Equals(f, Imm,    StringComparison.OrdinalIgnoreCase) => Rs2,
-                var f when string.Equals(f, Offset, StringComparison.OrdinalIgnoreCase) => Rd2,
-                _ => fieldName
-            };
+            var targetField = MapFieldToSlot(fieldName);
             fields[targetField] = ParseOperand(
                 operands[i], targetField, instruction.LineNumber, labels, currentIndex,
-                isBranchOffset: string.Equals(fieldName, Offset, StringComparison.OrdinalIgnoreCase));
+                isBranchOffset: IsOffsetField(fieldName));
         }
 
         return string.Concat(
@@ -76,6 +73,34 @@ internal static class InstructionEncoder6
             fields[Rd2],
             fields[Func],
             pattern.Opcode);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pseudo-instruction expansion
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Rewrites a pseudo-instruction into its architectural form, e.g.
+    /// <c>BNE.T rs1, rs2, off</c> → <c>BCGS.T rs1, rs2, off, off</c>. No-op for mnemonics that
+    /// are not pseudo-instructions.
+    /// </summary>
+    private static void ExpandPseudo(ref string mnemonic, List<string> operands, int lineNumber)
+    {
+        if (!PseudoExpansions.TryGetValue(mnemonic, out var expansion)
+            && !PseudoExpansions.TryGetValue($"{mnemonic}.T", out expansion))
+            return;
+
+        if (operands.Count != expansion.OperandCount)
+            throw new InvalidOperationException(
+                $"Mnemonic '{mnemonic}' expects {expansion.OperandCount} operand(s) but received {operands.Count} on line {lineNumber}.");
+
+        var expanded = expansion.Template
+            .Select(slot => slot.StartsWith('$') ? operands[int.Parse(slot[1..])] : slot)
+            .ToList();
+
+        operands.Clear();
+        operands.AddRange(expanded);
+        mnemonic = expansion.Target;
     }
 
     // -------------------------------------------------------------------------

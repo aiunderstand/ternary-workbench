@@ -69,18 +69,7 @@ internal static class InstructionDisassembler6
 
         var operands = new List<string>();
         foreach (var fieldName in pattern.AssemblyOperands)
-        {
-            // Map assembly name → encoding slot
-            var sourceField = fieldName switch
-            {
-                var f when string.Equals(f, Imm,    StringComparison.OrdinalIgnoreCase) => Rs2,
-                var f when string.Equals(f, Offset, StringComparison.OrdinalIgnoreCase) => Rd2,
-                _ => fieldName
-            };
-
-            bool isOffset = string.Equals(fieldName, Offset, StringComparison.OrdinalIgnoreCase);
-            operands.Add(FormatOperand(fields[sourceField], isOffset, currentIndex));
-        }
+            operands.Add(FormatOperand(fields[MapFieldToSlot(fieldName)], IsOffsetField(fieldName), currentIndex));
 
         return operands.Count == 0
             ? pattern.Mnemonic
@@ -161,12 +150,7 @@ internal static class InstructionDisassembler6
 
         // Fields that are supplied by assembly operands (variable)
         var assemblyFields = pattern.AssemblyOperands
-            .Select(op => op switch
-            {
-                var f when string.Equals(f, Imm,    StringComparison.OrdinalIgnoreCase) => Rs2,
-                var f when string.Equals(f, Offset, StringComparison.OrdinalIgnoreCase) => Rd2,
-                _ => op
-            })
+            .Select(MapFieldToSlot)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var fixedFields = new[] { Rs1, Rs2, Rd1, Rd2, Func };

@@ -38,6 +38,11 @@ namespace TernaryWorkbench.RebelAssembler.Assembly;
 /// <c>rs1[6] | imm[23:0][24] | opc[2]</c>
 /// </para>
 /// <para>
+/// B-type: <c>rs1[6] | rs2[6] | off1[6] | off2[6] | func[4] | opcode[4]</c>. The three-way
+/// branches <c>BCGS.T</c> and <c>BCEG.T</c> use both displacement slots; stores and the binary
+/// two-way branches use <c>off2</c> only and leave <c>off1</c> zero.
+/// </para>
+/// <para>
 /// NOP.T encodes as all-zero 32 trits (opcode <c>0000</c>, func <c>0000</c>,
 /// all register fields zero = ADDI.T X0, X0, 0).
 /// </para>
@@ -48,13 +53,14 @@ internal static class InstructionSet6
     // Field name constants (shared with existing encoder conventions where possible)
     // -------------------------------------------------------------------------
 
-    public const string Rs1    = "rs1";
-    public const string Rs2    = "rs2";
-    public const string Rd1    = "rd1";
-    public const string Rd2    = "rd2";
-    public const string Func   = "func";
-    public const string Imm    = "imm";     // maps to rs2 slot in I-type
-    public const string Offset = "offset";  // maps to rd2 slot in B-type
+    public const string Rs1  = "rs1";
+    public const string Rs2  = "rs2";
+    public const string Rd1  = "rd1";
+    public const string Rd2  = "rd2";
+    public const string Func = "func";
+    public const string Imm  = "imm";   // maps to rs2 slot in I-type
+    public const string Off1 = "off1";  // maps to rd1 slot in B-type (first displacement)
+    public const string Off2 = "off2";  // maps to rd2 slot in B-type (second displacement)
 
     public const string DefaultField = "000000"; // 6 trits, zero register / unused field
     public const string DefaultFunc  = "0000";   // 4-trit func field, all zero
@@ -181,25 +187,23 @@ internal static class InstructionSet6
             { "JALR.T",  new InstructionPattern("JALR.T",  "-+00", [Rd1, Rs1, Imm], Func4("000-")) },
 
             // ----------------------------------------------------------------
-            // B-type branch  opcode=0-00   (Offset → rd2 slot, Rd1 fixed)
+            // B-type three-way branch  opcode=0-00   (both displacement slots used)
+            // BCGS.T: rs1 > rs2 → PC+off1; rs1 < rs2 → PC+off2; rs1 == rs2 → PC+1
+            // BCEG.T: rs1 == rs2 → PC+off1; rs1 > rs2 → PC+off2; rs1 < rs2 → PC+1
+            // These are the only architectural ternary branches; the six two-way
+            // comparison branches are pseudo-instructions (see PseudoExpansions).
             // ----------------------------------------------------------------
-            { "BEQ.T",   new InstructionPattern("BEQ.T",   "0-00", [Rs1, Rs2, Offset],
-                Merge(Func4("00--"), Fixed(Rd1, DefaultField))) },
-            { "BNE.T",   new InstructionPattern("BNE.T",   "0-00", [Rs1, Rs2, Offset],
-                Merge(Func4("00-0"), Fixed(Rd1, DefaultField))) },
-            { "BLT.T",   new InstructionPattern("BLT.T",   "0-00", [Rs1, Rs2, Offset],
-                Merge(Func4("00-+"), Fixed(Rd1, DefaultField))) },
-            { "BGE.T",   new InstructionPattern("BGE.T",   "0-00", [Rs1, Rs2, Offset],
-                Merge(Func4("000-"), Fixed(Rd1, DefaultField))) },
+            { "BCGS.T",  new InstructionPattern("BCGS.T",  "0-00", [Rs1, Rs2, Off1, Off2], Func4("00--")) },
+            { "BCEG.T",  new InstructionPattern("BCEG.T",  "0-00", [Rs1, Rs2, Off1, Off2], Func4("00-0")) },
 
             // ----------------------------------------------------------------
-            // B-type store  opcode=0+00   (Offset/Imm → rd2 slot, Rd1 fixed)
+            // B-type store  opcode=0+00   (single displacement → rd2 slot, Rd1 fixed)
             // ----------------------------------------------------------------
-            { "SW.T",    new InstructionPattern("SW.T",    "0+00", [Rs1, Rs2, Offset],
+            { "SW.T",    new InstructionPattern("SW.T",    "0+00", [Rs1, Rs2, Off2],
                 Merge(Func4("00--"), Fixed(Rd1, DefaultField))) },
-            { "SH.T",    new InstructionPattern("SH.T",    "0+00", [Rs1, Rs2, Offset],
+            { "SH.T",    new InstructionPattern("SH.T",    "0+00", [Rs1, Rs2, Off2],
                 Merge(Func4("00-0"), Fixed(Rd1, DefaultField))) },
-            { "ST.T",    new InstructionPattern("ST.T",    "0+00", [Rs1, Rs2, Offset],
+            { "ST.T",    new InstructionPattern("ST.T",    "0+00", [Rs1, Rs2, Off2],
                 Merge(Func4("00-+"), Fixed(Rd1, DefaultField))) },
 
             // ----------------------------------------------------------------
@@ -267,22 +271,68 @@ internal static class InstructionSet6
             // B-type binary branch  opcode=0--0  (unsigned only; parallel to ternary 0-xx00 branch group)
             // BLTU=000+ BGEU=00+-
             // ----------------------------------------------------------------
-            { "BLTU",    new InstructionPattern("BLTU", "0--0", [Rs1, Rs2, Offset],
+            { "BLTU",    new InstructionPattern("BLTU", "0--0", [Rs1, Rs2, Off2],
                 Merge(Func4("000+"), Fixed(Rd1, DefaultField))) },
-            { "BGEU",    new InstructionPattern("BGEU", "0--0", [Rs1, Rs2, Offset],
+            { "BGEU",    new InstructionPattern("BGEU", "0--0", [Rs1, Rs2, Off2],
                 Merge(Func4("00+-"), Fixed(Rd1, DefaultField))) },
 
             // ----------------------------------------------------------------
             // B-type binary store  opcode=0+-0  (Offset → rd2 slot; parallel to ternary 0+xx00 store)
             // ----------------------------------------------------------------
-            { "SW",      new InstructionPattern("SW",  "0+-0", [Rs1, Rs2, Offset],
+            { "SW",      new InstructionPattern("SW",  "0+-0", [Rs1, Rs2, Off2],
                 Merge(Func4("00--"), Fixed(Rd1, DefaultField))) },
-            { "SH",      new InstructionPattern("SH",  "0+-0", [Rs1, Rs2, Offset],
+            { "SH",      new InstructionPattern("SH",  "0+-0", [Rs1, Rs2, Off2],
                 Merge(Func4("00-0"), Fixed(Rd1, DefaultField))) },
-            { "SB",      new InstructionPattern("SB",  "0+-0", [Rs1, Rs2, Offset],
+            { "SB",      new InstructionPattern("SB",  "0+-0", [Rs1, Rs2, Off2],
                 Merge(Func4("00-+"), Fixed(Rd1, DefaultField))) },
 
         };
+
+    // -------------------------------------------------------------------------
+    // Pseudo-instructions resolved by operand duplication
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Pseudo-instructions the encoder rewrites before pattern lookup. These are not in
+    /// <see cref="Patterns"/>, so the disassembler always emits the architectural form.
+    /// <para>
+    /// All six two-way comparison branches reduce to <c>BCGS.T</c> or <c>BCEG.T</c>: pick the
+    /// three-way branch whose fall-through outcome is the one the predicate excludes, then point
+    /// the remaining two outcomes at the target or at PC+1 (displacement <c>1</c>). Predicates
+    /// that exclude "greater" need the operands swapped, which is free at assembly time.
+    /// </para>
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, PseudoExpansion> PseudoExpansions =
+        new Dictionary<string, PseudoExpansion>(StringComparer.OrdinalIgnoreCase)
+        {
+            // Equality excluded → BCGS.T (equal falls through)
+            { "BNE.T", new PseudoExpansion("BCGS.T", 3, ["$0", "$1", "$2", "$2"]) },
+            { "BGT.T", new PseudoExpansion("BCGS.T", 3, ["$0", "$1", "$2", "1" ]) },
+            { "BLT.T", new PseudoExpansion("BCGS.T", 3, ["$0", "$1", "1",  "$2"]) },
+
+            // "Smaller" excluded → BCEG.T (smaller falls through)
+            { "BGE.T", new PseudoExpansion("BCEG.T", 3, ["$0", "$1", "$2", "$2"]) },
+            { "BEQ.T", new PseudoExpansion("BCEG.T", 3, ["$0", "$1", "$2", "1" ]) },
+
+            // "Greater" excluded → BCEG.T with rs1/rs2 swapped (rs1 ≤ rs2 ≡ rs2 ≥ rs1)
+            { "BLE.T", new PseudoExpansion("BCEG.T", 3, ["$1", "$0", "$2", "$2"]) },
+        };
+
+    // -------------------------------------------------------------------------
+    // Field mapping
+    // -------------------------------------------------------------------------
+
+    /// <summary>Maps an assembly-level field name to the physical encoding slot it occupies.</summary>
+    public static string MapFieldToSlot(string fieldName) =>
+        string.Equals(fieldName, Imm,  StringComparison.OrdinalIgnoreCase) ? Rs2
+      : string.Equals(fieldName, Off1, StringComparison.OrdinalIgnoreCase) ? Rd1
+      : string.Equals(fieldName, Off2, StringComparison.OrdinalIgnoreCase) ? Rd2
+      : fieldName;
+
+    /// <summary>True when the field carries a PC-relative displacement rather than a register.</summary>
+    public static bool IsOffsetField(string fieldName) =>
+        string.Equals(fieldName, Off1, StringComparison.OrdinalIgnoreCase)
+     || string.Equals(fieldName, Off2, StringComparison.OrdinalIgnoreCase);
 
     // -------------------------------------------------------------------------
     // Pattern-building helpers

@@ -226,7 +226,7 @@
 
     private string InputPlaceholder => (_isa, _mode) switch
     {
-        (Isa.Rebel6, AssemblerMode.Assemble)    => "ADD.T X1, X2, X3\nBEQ.T X1, X0, -1\nLI.T X2, 42",
+        (Isa.Rebel6, AssemblerMode.Assemble)    => "CMP.T X1, X2, X3\nBCGS.T X1, X0, 3, -2\nLI.T X2, 42",
         (Isa.Rebel6, AssemblerMode.Disassemble) => "0000+-0000+000000+000000000----++--\n...",
         (_, AssemblerMode.Assemble)              => "ADD.T X1, X2, X3\nNOP.T\nJAL.T X0, 0",
         _                                        => "--+-+00+00\n-000000000"
