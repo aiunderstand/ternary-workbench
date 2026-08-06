@@ -61,12 +61,20 @@ different addressing units. This is forced rather than chosen — a 32-trit inst
 whole number of 6-trit trytes (5⅓) nor of 24-trit words (1⅓), so instruction addresses cannot be
 expressed in data units without instructions straddling boundaries.
 
-| | Instruction memory | Data memory |
+| | Instruction space | Data space |
 |---|---|---|
-| Addressing unit | one instruction | one tryte (6 trits) |
+| Addressing unit | one instruction slot | one tryte (6 trits) |
+| Cell width | 32 trits | 6 trits |
 | Address width | 24 trits (PC) | 24 trits (register) |
-| Contents per address | one 32-trit instruction | 6 trits |
+| Port | fetch only | load/store only |
 | Displacement unit | instructions (`BEQ.T`, `JAL.T`) | trytes (`LW.T`, `SW.T`) |
+| Regions | I-ROM | D-ROM, D-RAM |
+
+The two spaces are **separate physical arrays**, each at its natural cell width. They are not two
+views of one array: 32 trits is 5 trytes plus 2 trits, so exposing instruction storage through a
+tryte-addressed window would need width-conversion logic for a case that never has to arise. Keeping
+them separate also gives W^X and non-executable data for free, since neither port can reach the
+other's array.
 
 Because the units differ, a code address and a data address are not interchangeable. `AIPC.T`
 (`rd = PC + imm24`) therefore produces a **code** address, and PC-relative addressing is restricted
@@ -144,21 +152,66 @@ A word is the register width. All three loads compute the same effective address
 differ only in how many trytes they move; the offset selects any tryte, so every tryte and halfword
 position within a word is directly addressable without a selector field.
 
+**Tryte order is little-endian**: the lowest address holds the least significant tryte. A word at
+address `A` therefore has value `t(A) + 3⁶·t(A+1) + 3¹²·t(A+2) + 3¹⁸·t(A+3)`. This is forced rather
+than chosen — RV32I is little-endian and data displacements translate 1:1, so `lb rd, 0(rs1)` must
+read the same datum in both — and it is what the reference implementation does.
+
 **Narrow loads zero-pad, and there are no unsigned variants.** In balanced ternary a value's sign is
 carried by its most significant non-zero trit, not by a sign bit, so padding with `0` trits cannot
 change the value — widening is exact in every case. This is why the ternary load group has three
 instructions (`LW.T`, `LH.T`, `LT.T`) where the binary group needs five (`LW`, `LH`, `LB`, `LHU`,
 `LBU`): there is nothing for `LTU.T`/`LHU.T` to do. Narrow stores write the low trytes of `rs2`.
 
+### Memory map
+
+No instruction reads instruction storage as data — `LW.T`/`LH.T`/`LT.T`/`LWA.T` address the data
+space only. Read-only data therefore cannot live in I-ROM: `.rodata` placed there would be
+unreadable, and the `.data` initialiser image would be unreachable by startup code, so the program
+could not boot. Const tables, string literals and jump tables are all affected.
+
+REBEL-6 resolves this in the **data address space**, not by adding a way to read instruction storage.
+The requirement is only that non-volatile storage exist at ordinary data addresses:
+
+| Space | Region | Cells | Access | Holds |
+|-------|--------|-------|--------|-------|
+| I | **I-ROM** | *N* slots × 32 trits | fetch | `.text` |
+| D | **D-ROM** | *M* trytes, low | load | `.rodata`, `.data` initialiser image |
+| D | **D-RAM** | *K* trytes, high | load/store | `.data`, `.bss`, heap, stack |
+
+Startup copies `.data` from D-ROM to D-RAM with ordinary loads and stores. A linker script needs two
+output regions in one address space (`MEMORY { drom … dram … }`, `.data : AT> drom`) — nothing about
+this is REBEL-6-specific, and a stock C library needs no changes. Writes to D-ROM have no effect;
+whether they additionally raise a trap is implementation-defined.
+
+**`.text` contains instructions only.** There are no literal pools: a target that dumps constants
+into the code stream and reads them PC-relatively, as ARM does with `ldr r0, =…`, cannot work here,
+because nothing can load from I-space. Nor is the trick needed — `LI.T` places a full 24-trit
+constant in a register in one instruction. All constants reside in `.rodata`. This is an ABI
+requirement, not a code-generation preference.
+
+**Code addresses are ordinary data words.** The PC is 24 trits and so is a register, so a code
+address fits exactly in one word. Every C construct that stores one therefore works with no special
+handling: function pointers, jump tables in `.rodata` (`LWA.T` the entry, `JALR.T` through it),
+return addresses spilled to the stack, `setjmp`/`longjmp`, vtables, `atexit` chains, `qsort`
+comparators, ISR vector tables, and GCC's `&&label`. Only the *value* refers to I-space; the table
+itself is ordinary data. Conforming C never performs arithmetic on function pointers or dereferences
+them as data — `void *` ↔ function-pointer round-tripping is POSIX, not ISO — so the fact that the
+two spaces count different units is invisible to portable code.
+
 ### Representative sizing
 
-An MCU-class part uses a small fraction of the architectural address space — on the order of 1 MT
-(megatryte) of ROM and 3 MT of RAM. Two consequences worth noting:
+An MCU-class part uses a small fraction of the architectural address space. State the three regions
+in their own units, since "1 MT of ROM" is ambiguous about both which space and which cell:
 
-- 1 MT of ROM is 6×10⁶ trits ÷ 32 ≈ **187,500 instructions**, which is *inside* the ±265,720-instruction
-  reach of a single two-way branch. Branch relaxation never fires on such a part. The three-way
-  branches' ±364 does not span it, which is why both forms exist.
-- `LWA.T`/`SWA.T` reach ±141 billion trytes, so every global in a 3 MT RAM is one instruction away.
+- **I-ROM** ≈ 187,500 slots (≈ 6×10⁶ trits). This is *inside* the ±265,720-instruction reach of a
+  single two-way branch, so branch relaxation never fires on such a part. The three-way branches'
+  ±364 does not span it, which is why both forms exist.
+- **D-ROM + D-RAM** on the order of 1 MT and 3 MT (megatrytes). `LWA.T`/`SWA.T` reach ±141 billion
+  trytes, so every global is one instruction away regardless of where it sits.
+
+Both address spaces are 24 trits wide — 3²⁴ ≈ 282 billion slots or trytes — so the architecture
+imposes no limit near these figures.
 
 ### Alignment
 
@@ -287,55 +340,79 @@ absolute immediates directly — there is no GOT, no PLT, no lazy binding, no st
 and no register reserved for a base pointer. A global access is one instruction (`LWA.T rd, sym`)
 where RISC-V needs two.
 
+The object format is **ELF32-alike**: relocations are `Elf32_Rela`-shaped records of
+(`r_offset`, `r_info`, `r_addend`), and symbols carry standard binding and type.
+
 ### Relocations
 
-Five kinds, distinguished by the field they patch. Names are indicative.
+`S` is the resolved symbol address, `P` the address of the patch site — the instruction being
+patched, not the one after it, since `JAL.T` computes `PC = PC + imm24` from its own address.
 
-| Relocation | Field | Width | Unit | Instructions |
-|------------|-------|-------|------|--------------|
-| `ABS24` | G/Y `imm24` | 24 trits | trytes (data) or instructions (code) | `LI.T`, `LWA.T`, `SWA.T` |
-| `PCREL24` | G `imm24` | 24 trits | instructions | `JAL.T`, `AIPC.T` |
-| `PCREL12` | B-type `imm12`, contiguous | 12 trits | instructions | `BEQ.T`, `BNE.T`, `BLT.T`, `BGE.T` |
-| `PCREL6` | B-type `off1` **or** `off2` | 6 trits | instructions | `BCGS.T`, `BCEG.T` |
-| `DISP12` | I-type `imm12` split, or B-type `imm12` contiguous | 12 trits | trytes | `LW.T`/`LH.T`/`LT.T`, `SW.T`/`SH.T`/`ST.T` |
+| Relocation | Value | Field | Width | Unit |
+|------------|-------|-------|-------|------|
+| `R_REBEL6_ABS24_DATA` | `S` | G/Y `imm24` | 24 trits | trytes |
+| `R_REBEL6_ABS24_CODE` | `S` | G/Y `imm24` | 24 trits | instructions |
+| `R_REBEL6_PCREL24` | `S − P` | G `imm24` | 24 trits | instructions |
+| `R_REBEL6_PCREL12` | `S − P` | B-type `imm12`, contiguous | 12 trits | instructions |
+| `R_REBEL6_PCREL6_OFF1` | `S − P` | B-type `off1` (rd1 slot) | 6 trits | instructions |
+| `R_REBEL6_PCREL6_OFF2` | `S − P` | B-type `off2` (rd2 slot) | 6 trits | instructions |
+| `R_REBEL6_DISP12` | `S` + addend | I-type `imm12` split, or B-type `imm12` contiguous | 12 trits | trytes |
 
-Three things a relocation must carry beyond width and addend:
+Used by: `ABS24_*` — `LI.T`, `LWA.T`, `SWA.T`, and data words holding an address; `PCREL24` —
+`JAL.T`, `AIPC.T`; `PCREL12` — `BEQ.T`, `BNE.T`, `BLT.T`, `BGE.T`; `PCREL6_*` — `BCGS.T`, `BCEG.T`;
+`DISP12` — `LW.T`/`LH.T`/`LT.T`, `SW.T`/`SH.T`/`ST.T`.
 
-- **Which unit.** PC-relative displacements are in *instructions*; data displacements are in
-  *trytes*. The two are not interchangeable under the Harvard split.
-- **Which layout.** I-type's `imm12` is split around the destination register (rs2 slot =
-  `imm[11:6]`, rd2 slot = `imm[5:0]`); B-type's is contiguous across rd1+rd2. Same width, different
-  scatter.
-- **Which symbol class.** `%pc_rel` is valid only on **code** symbols; a PC-relative reference to a
-  data symbol is an error, not a fixup.
+Three properties are encoded in the relocation type rather than inferred:
 
-`PCREL24` is required even without position-independent code, because `JAL.T` is PC-relative by
-definition.
+- **Unit.** PC-relative displacements count *instructions*; data addresses count *trytes*. The two
+  are not interchangeable under the Harvard split, so `ABS24` splits by symbol class: `ABS24_CODE`
+  for a function address or a jump-table entry, `ABS24_DATA` for an object address. Deriving this
+  from the symbol type instead would let an untyped `.word sym` produce an address in the wrong
+  space — a wild pointer, not a rounding error. Note that `ABS24_CODE` is routinely emitted *into a
+  data section*: jump tables, `.init_array`/`.fini_array`, vtables and ISR vector tables are all
+  arrays of code addresses living in `.rodata` or `.data`. A relocation design that assumes section
+  class implies address class gets these wrong.
+- **Layout.** I-type's `imm12` is split around the destination register (rs2 slot = `imm[11:6]`,
+  rd2 slot = `imm[5:0]`); B-type's is contiguous across rd1+rd2. Same width, different scatter.
+- **Slot.** The three-way branches need `OFF1` and `OFF2` as distinct types — see below.
+
+`PCREL24` is required even though there is no position-independent code, because `JAL.T` is
+PC-relative by definition.
+
+`DISP12` is needed only where a load/store displacement is not a compile-time constant. With
+gp-relative addressing out of scope and the `%lo` pairs already collapsed, a minimal C toolchain may
+never emit one; it is listed for completeness rather than as a requirement.
 
 ### Two fixups in one instruction
 
 `BCGS.T` and `BCEG.T` carry two independent 6-trit displacements in a single 32-trit word, so one
-instruction address can require **two** `PCREL6` fixups. Most relocation formats assume one fixup per
-site. Either emit two entries at the same offset with a field selector (`off1` / `off2`), or one
-composite entry carrying both addends — but decide before the first object file format is frozen.
+instruction address can require **two** relocations. This is emitted as **two ordinary records at the
+same `r_offset`**, distinguished by type (`PCREL6_OFF1`, `PCREL6_OFF2`) rather than by a selector
+field inside a composite record.
 
-### Relaxation is avoidable by construction
+Two records keep the standard three-field relocation shape, so ELF tooling continues to work; they
+give each branch target its own symbol and addend, which it needs since the two targets are
+genuinely independent symbols; and duplicate `r_offset` values are legal. A composite record would
+buy atomicity during relaxation — which the next section removes the need for.
+
+### No relaxation
 
 Two-way branches reach ±265,720 instructions, comfortably more than the ≈187,500 instructions of a
 1 MT ROM, so they never overflow on an MCU-class part. Only the three-way branches can, at ±364 per
-target.
+target. Relaxing one means rewriting it as invert-and-jump, which changes code size, shifts every
+subsequent address, and forces the iterative layout loop RISC-V linkers have to implement.
 
-Relaxing an overflowing three-way branch means rewriting it as invert-and-jump, which changes code
-size, shifts every subsequent address, and forces the iterative layout loop that RISC-V linkers have
-to implement. That is avoidable with a compiler rule:
+REBEL-6 avoids that by rule rather than by machinery. **Normative:**
 
-> Emit a three-way branch only when **both** targets are provably within ±364 instructions;
-> otherwise use the two-way forms.
+> A three-way branch may be emitted only when **both** targets are provably within ±364
+> instructions. Otherwise the two-way forms must be used.
+>
+> The linker does not relax. A `PCREL6` displacement that does not fit is a link error.
 
 Three-way branching is a local-dispatch construct — the comparison-driven search, sort and merge
-kernels it exists for have nearby targets — so the rule costs nothing in practice, and it lets the
-linker be a single-pass patcher with no layout iteration. If the rule is not adopted, the linker must
-detect `PCREL6` overflow and either relax or error; it must never silently truncate.
+kernels it exists for have nearby targets — so the rule costs nothing in practice, and it makes the
+linker a single-pass patcher with no layout iteration. Truncating an overflowing displacement is
+never permitted.
 
 ### Link-time checks
 
@@ -347,6 +424,15 @@ The linker rejects rather than truncates:
   assembler checks constant offsets; only the linker knows final symbol addresses. Hardware performs
   no alignment check (see [Alignment](#alignment)), so the toolchain is the only place misalignment
   is caught.
+
+### Open: ABI
+
+The calling convention is inherited from RV32I ilp32 — register roles (`sp`, `ra`, `gp`, `a0`–`a7`,
+`s0`–`s11`, `t0`–`t6`), argument and return passing, the caller/callee-saved split, and ilp32 type
+sizes and struct layout. What is **not** yet defined is which 32 of REBEL-6's 729 registers carry
+those roles, or what the remaining 697 are for. Transpiled RV32I code never notices, but native
+ternary assembly, a link-time optimiser wanting scratch registers, and any hand-written runtime all
+need the answer. Unresolved as of this revision.
 
 ## Mnemonics
 
