@@ -186,6 +186,18 @@
                 <MudExpansionPanel Text="REBEL-6 Instruction Set Reference" Icon="@Icons.Material.Filled.Info">
                     <MarkdownViewer FilePath="docs/rebel6-isa.md" />
                 </MudExpansionPanel>
+                <MudExpansionPanel Text="REBEL-6 Platform (Harts, Traps, Interrupts, Peripherals)" Icon="@Icons.Material.Filled.Memory">
+                    <MarkdownViewer FilePath="docs/rebel6-platform.md" />
+                </MudExpansionPanel>
+                <MudExpansionPanel Text="REBEL-6 Extensions (M, A, F, P, Ztl, Ztb, Zicsr)" Icon="@Icons.Material.Filled.Extension">
+                    <MarkdownViewer FilePath="docs/rebel6-extensions.md" />
+                </MudExpansionPanel>
+                <MudExpansionPanel Text="trifloat24 Floating-Point Format" Icon="@Icons.Material.Filled.Functions">
+                    <MarkdownViewer FilePath="docs/rebel6-trifloat24.md" />
+                </MudExpansionPanel>
+                <MudExpansionPanel Text="REBEL-6 ABI" Icon="@Icons.Material.Filled.AccountTree">
+                    <MarkdownViewer FilePath="docs/rebel6-abi.md" />
+                </MudExpansionPanel>
             }
             @if (_isa == Isa.Rebel2v2)
             {
@@ -218,7 +230,7 @@
 
     private string InputLabel => (_isa, _mode) switch
     {
-        (Isa.Rebel6, AssemblerMode.Assemble)    => "Assembly source (REBEL-6, one instruction per line)",
+        (Isa.Rebel6, AssemblerMode.Assemble)    => "Assembly source (REBEL-6, 1–729 instructions, one per line)",
         (Isa.Rebel6, AssemblerMode.Disassemble) => "Machine code (one 32-trit word per line)",
         (_, AssemblerMode.Assemble)              => "Assembly source (1–9 instructions, one per line)",
         _                                        => "Machine code (one 10-trit word per line)"
@@ -226,8 +238,8 @@
 
     private string InputPlaceholder => (_isa, _mode) switch
     {
-        (Isa.Rebel6, AssemblerMode.Assemble)    => "CMP.T X1, X2, X3\nBCGS.T X1, X0, 3, -2\nLI.T X2, 42",
-        (Isa.Rebel6, AssemblerMode.Disassemble) => "0000+-0000+000000+000000000----++--\n...",
+        (Isa.Rebel6, AssemblerMode.Assemble)    => "CMP.T X1, X2, X3\nBCGS.T X1, X0, 3, -2\nMUL.T X1, X2, X3\nLI.T X2, 42",
+        (Isa.Rebel6, AssemblerMode.Disassemble) => "00000000000000000000000000++++00\n...",
         (_, AssemblerMode.Assemble)              => "ADD.T X1, X2, X3\nNOP.T\nJAL.T X0, 0",
         _                                        => "--+-+00+00\n-000000000"
     };

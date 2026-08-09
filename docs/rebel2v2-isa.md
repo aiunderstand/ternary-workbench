@@ -12,6 +12,15 @@ Each 10-trit word is split into five 2-trit fields. Same register file and Harva
 - **Memory access:** LD2.T and ST2.T add optional memory load/store (V2.2 extension; base REBEL-2 is register-oriented).
 - **Expanded format set:** R, I, D, E (MAJV 3-source), U (unary, rs2 fixed to 00).
 
+## Naming note — SC.T → ROT.T
+
+The cyclic shift's mnemonic is renamed **`ROT.T`** across the REBEL family: REBEL-6's A extension
+adopts the RISC-V atomics names, in which `SC.T` is store-conditional, and one mnemonic cannot name
+both (see [REBEL-6 Errata E-3](rebel6-isa.md#e-3--the-cyclic-shift-is-renamed-sct--rott)).
+The encoding is unchanged — this is a rename, not a re-encoding. `SC.T` remains accepted as a
+deprecated alias on REBEL-2, where no atomics exist to collide with; the reference assembler
+implements the rename, and disassembly prints `ROT.T`.
+
 ## Instruction Formats
 
 Fields are shown MST-first (most significant trit at left).
@@ -19,7 +28,7 @@ Fields are shown MST-first (most significant trit at left).
 | Format | Trits [9:8] | Trits [7:6] | Trits [5:4] | Trits [3:2] | Trits [1:0] | Examples |
 |--------|-------------|-------------|-------------|-------------|-------------|---------|
 | **R** | func | rd1 | rs2 | rs1 | op | ADD.T, SUB.T, MUL.T, MULH.T, DIV.T, REM.T, MOD.T — register × register, func selects variant |
-| **I** | func | rd1 | imm | rs1 | op | ADDI.T, MINI.T, MAXI.T, SL*.T, SR*.T, SC.T, CMP*I.T — immediate operand, func selects variant |
+| **I** | func | rd1 | imm | rs1 | op | ADDI.T, MINI.T, MAXI.T, SL*.T, SR*.T, ROT.T, CMP*I.T — immediate operand, func selects variant |
 | **D** | rs2 | rd1 | rs1(imm) | rs1 | op | LI2.T, BCEG.T — both rd1 and rd2 are explicit operand registers |
 | **E** | rs3 | rd1 | rs2 | rs1 | op | MAJV.T — 3 sources; rs3 encoded in Rd2 slot |
 | **U** | 00 | rd1 | func | rs1 | op | STI.T, NTI.T, PTI.T, MTI.T, CYCLEUP.T, SWAP.T — unary; rs2 fixed to 00 |
@@ -68,7 +77,7 @@ Immediates (imm2) are 2-trit balanced integers in range [−4, 4].
 | NTI.T | U | 00 | rd1, rs1 | 0- | Ternary ALU | rd1 = negative ternary inversion(rs1) |
 | PTI.T | U | 00 | rd1, rs1 | 0+ | Ternary ALU | rd1 = positive ternary inversion(rs1) |
 | REM.T | R | -- | rd1, rs1, rs2 | 0+ | Ternary ALU | rd1 = rs1 rem rs2 (truncated, towards zero) |
-| SC.T | I | 0+ | rd1, rs1, imm2 | 00 | Ternary Shift | Cyclic shift by imm2 |
+| ROT.T | I | 0+ | rd1, rs1, imm2 | 00 | Ternary Shift | Cyclic shift by imm2 (formerly SC.T — see naming note; SC.T accepted as deprecated alias) |
 | SLIN.T | I | 0+ | rd1, rs1, imm2 | -- | Ternary Shift | Shift left by imm2, fill with − |
 | SLIZ.T | I | 0+ | rd1, rs1, imm2 | -0 | Ternary Shift | Shift left by imm2, fill with 0 |
 | SLIP.T | I | 0+ | rd1, rs1, imm2 | -+ | Ternary Shift | Shift left by imm2, fill with + |

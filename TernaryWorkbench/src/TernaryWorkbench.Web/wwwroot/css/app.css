@@ -109,3 +109,35 @@ code {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+/* REBEL-6 documentation coloring (rendered via MarkdownViewer; global because
+   MarkupString-injected HTML bypasses Blazor CSS isolation). GitHub strips these
+   classes and degrades to plain text/tables. */
+.md-content .r6-badge {
+    display: inline-block;
+    padding: 0.05em 0.55em;
+    border-radius: 0.75em;
+    font-size: 0.78em;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+}
+
+.md-content .r6-t  { background: #e3f2e8; color: #1b5e20; }   /* Base Ternary / ternary-only */
+.md-content .r6-b  { background: #e3ecf7; color: #0d47a1; }   /* Base Binary / requires Base Binary */
+.md-content .r6-e  { background: #f0e7f6; color: #4a148c; }   /* Extensions */
+
+.md-content table.r6-opmap {
+    border-collapse: collapse;
+    font-size: 0.9em;
+}
+
+.md-content table.r6-opmap th,
+.md-content table.r6-opmap td {
+    border: 1px solid #d0d0d0;
+    padding: 0.3em 0.6em;
+}
+
+.md-content table.r6-opmap th.r6-t, .md-content table.r6-opmap td.r6-t { background: #f2faf4; }
+.md-content table.r6-opmap th.r6-b, .md-content table.r6-opmap td.r6-b { background: #f2f7fc; }
+.md-content table.r6-opmap th.r6-e, .md-content table.r6-opmap td.r6-e { background: #f8f3fb; }

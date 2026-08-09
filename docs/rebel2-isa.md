@@ -28,6 +28,14 @@ REBEL-2 (RISC-V-like Energy efficient Balanced tErnary Logic CPU, 2-trit address
 - **Instruction timing:** Single-cycle; read at rising edge, write at falling edge.
 - **ISA inspiration:** RISC-V principles (simplicity, shift complexity to software).
 
+## Naming note — SC.T → ROT.T
+
+The cyclic shift's mnemonic is renamed **`ROT.T`** across the REBEL family: REBEL-6's A extension
+adopts the RISC-V atomics names, in which `SC.T` is store-conditional, and one mnemonic cannot name
+both (see [REBEL-6 Errata E-3](rebel6-isa.md#e-3--the-cyclic-shift-is-renamed-sct--rott)).
+The encoding is unchanged — this is a rename, not a re-encoding. `SC.T` remains accepted as a
+deprecated alias on REBEL-2; disassembly prints `ROT.T`.
+
 ## Instruction Formats
 
 Fields are shown MST-first (most significant trit at left).
@@ -35,7 +43,7 @@ Fields are shown MST-first (most significant trit at left).
 | Format | Trits [9:8] | Trits [7:6] | Trits [5:4] | Trits [3:2] | Trits [1:0] | Examples |
 |--------|-------------|-------------|-------------|-------------|-------------|---------|
 | **R** | func | rd1 | rs2 | rs1 | op | ADD.T, MUL.T, CMP*.T — register × register, func selects variant |
-| **I** | func | rd1 | imm | rs1 | op | ADDI.T, SL*.T, SR*.T, SC.T, JAL.T, JALR.T — immediate operand, func selects variant |
+| **I** | func | rd1 | imm | rs1 | op | ADDI.T, SL*.T, SR*.T, ROT.T, JAL.T, JALR.T — immediate operand, func selects variant |
 | **D** | rd2 | rd1 | rs2 | rs1 | op | ADDI2.T, BCEG.T — both rd1 and rd2 are explicit destination registers |
 
 **Registers:** X-4 (--), X-3 (-0), X-2 (-+), X-1 (0-), X0 (00, hardwired zero), X1 (0+), X2 (+-), X3 (+0), X4 (++).
@@ -62,7 +70,7 @@ Immediates (imm2) are 2-trit balanced integers in range [−4, 4].
 | MUL.T | R | 0- | rd1, rs1, rs2 | 00 | Ternary ALU | rd1 = rs1 × rs2 |
 | MV.T | I | -0 | rd1, rs1 | 00 | Pseudo | rd1 = rs1 |
 | NOP.T | I | -0 | | 00 | Pseudo | No-op (write 0 to X0) |
-| SC.T | I | 0+ | rd1, rs1, imm2 | 00 | Ternary Shift | Cyclic shift by imm2 |
+| ROT.T | I | 0+ | rd1, rs1, imm2 | 00 | Ternary Shift | Cyclic shift by imm2 (formerly SC.T — see naming note; SC.T accepted as deprecated alias) |
 | SLIN.T | I | 0+ | rd1, rs1, imm2 | -- | Ternary Shift | Shift left by imm2, fill with − |
 | SLIZ.T | I | 0+ | rd1, rs1, imm2 | -0 | Ternary Shift | Shift left by imm2, fill with 0 |
 | SLIP.T | I | 0+ | rd1, rs1, imm2 | -+ | Ternary Shift | Shift left by imm2, fill with + |

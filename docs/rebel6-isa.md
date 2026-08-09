@@ -1,5 +1,15 @@
 # REBEL-6 Instruction Set Reference
 
+REBEL-6 is specified across five documents:
+
+| Document | Contents |
+|----------|----------|
+| **rebel6-isa.md** (this document) | Base ISA: encoding, formats, arithmetic semantics, memory model, Base Ternary, Base Binary, linking, errata |
+| [rebel6-platform.md](rebel6-platform.md) | Harts, privilege, traps, interrupts, streaming registers, MMIO, peripherals |
+| [rebel6-extensions.md](rebel6-extensions.md) | Extensions: M, A, F, P, Ztl, Ztb, Zicsr, V (reserved) |
+| [rebel6-trifloat24.md](rebel6-trifloat24.md) | The 24-trit floating-point format |
+| [rebel6-abi.md](rebel6-abi.md) | ABI: register roles (xN ↔ X+N), calling convention, stack, crt0, semihosting |
+
 ## Overview & Comparison with REBEL-2
 
 REBEL-6 is the successor to REBEL-2, designed for real-world applications rather than education.
@@ -11,14 +21,30 @@ binary (RV32I-compatible) instructions have no suffix. PC increments by 1 per in
 |----------|---------|------------|
 | Radix | Balanced ternary | **Balanced ternary** |
 | Instruction width | 10 trits | **32 trits** |
-| Instruction count | 23 + 3 pseudo (9 opcode groups) | **47 ternary + 27 binary + 4 pseudo = 78** |
+| Base instruction count | 23 + 3 pseudo (9 opcode groups) | **55 ternary + 27 binary + 5 pseudo = 87** |
 | Register count | 9 (X-4 … X4) | **729 (X-364 … X364; X0 = zero)** |
 | Register width | 2 trits | **24 trits** |
 | Operand count | 2–4 | **2–4** |
 | PC jump/instr. | 1 | **1** |
-| Binary compat. | None | **Full RV32I (L-type, hardware flag)** |
+| Binary compat. | None | **RV32I (optional layer; L-type, hardware flag)** |
 | Formats | R, I, D | **R, I, B, D, X, G, Y, L** |
+| Harts / privilege | 1 / none | **1–27 harts, 3 privilege levels — see [platform](rebel6-platform.md)** |
+| Extensions | None | **M, A, F, P, Ztl, Ztb, Zicsr — see [extensions](rebel6-extensions.md)** |
 | Primary use | Education | **Real-world applications** |
+
+## Architecture profile
+
+<span class="r6-badge r6-t">Base Ternary</span> is the **mandatory core**: a conforming REBEL-6
+implementation implements every Base Ternary instruction. <span class="r6-badge r6-b">Base
+Binary</span> is an **optional compatibility layer** — it exists so that software targeting RV32I
+runs on ternary hardware, either as stock binaries (L-type) or transpiled assembly (R2R), but a
+ternary-only implementation may omit it entirely. <span class="r6-badge r6-e">Extensions</span> are
+**ternary-only designs**; the single exception is Zicsr, a binary-compatibility extension that
+requires Base Binary and is marked as such.
+
+An implementation names its profile as `R6T[B][extensions]`: `R6T` is the ternary core alone,
+`R6TB` adds the binary layer, and extension letters follow — e.g. `R6TB-MAFP_Ztl_Ztb_Zicsr` for the
+full MCU profile. Growth of the binary layer beyond RV32I is **not planned**.
 
 ## RV32I Binary Compatibility (L-type)
 
@@ -29,6 +55,12 @@ instruction translator convert each RV32I instruction into its REBEL-6 binary fo
 performing in hardware exactly what the software toolchain does ahead of time — including rescaling
 branch displacements so the PC still advances by 1 (see [Memory Model](#memory-model)). The `xx-0`
 opcode group provides a software-accessible RV32I instruction space for explicit binary-mode code.
+
+L-type requires the Base Binary layer. Its coverage is **RV32I** (plus Zicsr, when that extension is
+implemented — see [extensions](rebel6-extensions.md#zicsr--csr-access-requires-base-binary)); an
+RV32I instruction outside the implemented set raises an illegal-instruction trap, which permits
+software emulation. Compressed (RVC), M, A, F and D binary encodings are not translated: binary
+software must be built for plain `rv32i` (multiply/divide via the compiler's soft routines).
 
 ## Instruction Formats
 
@@ -41,7 +73,7 @@ Fields shown MST-first. 4-trit opcodes: last trit = 0. 2-trit opcodes (G/Y): las
 | **B** | rs1[6] \| rs2[6] \| imm[11:0][12] \| func[4] \| opcode[4] | BEQ.T, BCGS.T, SW.T, BLTU, SW, SB |
 | **G** | imm[23:12][12] \| rd1[6] \| imm[11:0][12] \| opc[2] | LWA.T, LI.T, JAL.T, AIPC.T |
 | **X** | imm6a[6] \| imm6b[6] \| rd1[6] \| rd2[6] \| func[4] \| opcode[4] | LI2.T |
-| **D** | rs1[6] \| rs2[6] \| rd1[6] \| rs3[6] \| func[4] \| opcode[4] | MAJV.T, MINV.T |
+| **D** | rs1[6] \| rs2[6] \| rd1[6] \| rs3[6] \| func[4] \| opcode[4] | MAJV.T, MINV.T; MAC.T, FMA.T, TMAC.T, TLUT.T (extensions) |
 | **Y** | rs1[6] \| imm[23:0][24] \| opc[2] | SWA.T |
 | **L** | RV32I 32-bit instruction format (binary compatibility, requires hardware flag) | native RV32I passthrough |
 
@@ -53,6 +85,41 @@ immediates the binary instructions must reproduce.
 
 The three-way branches are the one exception: they read the B-type field as **two independent 6-trit
 displacements** `off1`\|`off2`, ±364 each, trading reach for a second branch target.
+
+The D format supplies a third source in the rd2 slot. Base Ternary uses it for the majority and
+minority votes; the extensions lean on it heavily, because `rd = f(rs1, rs2, rs3)` is exactly the
+shape of a multiply-accumulate (`MAC.T`, `FMA.T`, `TMAC.T`) and of a two-input gate applied under a
+programmable truth table (`TLUT.T`).
+
+## Arithmetic Semantics
+
+**Ternary integer arithmetic wraps, balanced, modulo 3²⁴.** The result of `ADD.T`, `SUB.T`,
+`ADDI.T` — and of the M extension's multiply — is the unique value in
+±(3²⁴−1)/2 = ±141,214,768,240 congruent to the exact result modulo 3²⁴. This is the balanced-radix
+transposition of two's-complement wrap: carries out of trit 23 are dropped, the operation is
+associative, and modular identities hold, which is what compilers, bignum layers and softfloat
+libraries assume.
+
+```
+  MAX + 1  →  MIN            +++…+ (24)  =  +141,214,768,240
+                              plus 1
+                             = ---…- (24) =  −141,214,768,240
+```
+
+Balanced wrap is kinder than binary wrap in one structural way: **the range is symmetric**. There is
+no `INT_MIN` whose negation overflows — `STI.T` (negate) is total, `|x|` is always representable,
+and division has no overflow case (`MIN ÷ −1 = MAX` is representable; contrast RV32I, which must
+define `INT_MIN ÷ −1` specially). Wide products lose nothing: `MULH.T` exposes the upper word.
+
+Saturating arithmetic is deliberately **not** part of the base — DSP-style saturation belongs to the
+[P extension](rebel6-extensions.md#p--packed-ternary-simd), where its consumers live.
+
+**Base Binary arithmetic wraps modulo 2³².** That divergence is not an inconsistency; it is the
+*definition* of the binary layer — see
+[Base Binary](#rebel-6-base-binary-optional-rv32i-compatibility-layer).
+
+**X0 is hardwired zero** in every variant: reads return 0, writes are discarded. The all-zero
+32-trit word decodes as `ADDI.T X0, X0, 0` = `NOP.T`, so blank instruction memory is a NOP sled.
 
 ## Memory Model
 
@@ -68,7 +135,7 @@ expressed in data units without instructions straddling boundaries.
 | Address width | 24 trits (PC) | 24 trits (register) |
 | Port | fetch only | load/store only |
 | Displacement unit | instructions (`BEQ.T`, `JAL.T`) | trytes (`LW.T`, `SW.T`) |
-| Regions | I-ROM | D-ROM, D-RAM |
+| Regions | I-ROM | D-ROM, D-RAM, MMIO |
 
 The two spaces are **separate physical arrays**, each at its natural cell width. They are not two
 views of one array: 32 trits is 5 trytes plus 2 trits, so exposing instruction storage through a
@@ -165,24 +232,45 @@ instructions (`LW.T`, `LH.T`, `LT.T`) where the binary group needs five (`LW`, `
 
 ### Memory map
 
+> **Revision note.** This map supersedes the earlier two-region arrangement (D-ROM low, D-RAM high).
+> The data space is now split into **three equal regions selected by the most significant trit** —
+> the cheapest possible region decode, a single trit inspection.
+
 No instruction reads instruction storage as data — `LW.T`/`LH.T`/`LT.T`/`LWA.T` address the data
 space only. Read-only data therefore cannot live in I-ROM: `.rodata` placed there would be
 unreadable, and the `.data` initialiser image would be unreachable by startup code, so the program
-could not boot. Const tables, string literals and jump tables are all affected.
+could not boot. REBEL-6 resolves this in the **data address space**, not by adding a way to read
+instruction storage.
 
-REBEL-6 resolves this in the **data address space**, not by adding a way to read instruction storage.
-The requirement is only that non-volatile storage exist at ordinary data addresses:
+| MST | Region | Address range (trytes) | Access | Holds |
+|-----|--------|------------------------|--------|-------|
+| `+` | **D-ROM** | +47,071,589,414 … +141,214,768,240 | load | `.rodata`, `.data` initialiser image |
+| `0` | **D-RAM** | −47,071,589,413 … +47,071,589,413 | load/store | `.data`, `.bss`, heap, stack |
+| `−` | **MMIO** | −141,214,768,240 … −47,071,589,414 | load/store, device semantics | peripheral registers — see [platform](rebel6-platform.md#mmio) |
 
-| Space | Region | Cells | Access | Holds |
-|-------|--------|-------|--------|-------|
-| I | **I-ROM** | *N* slots × 32 trits | fetch | `.text` |
-| D | **D-ROM** | *M* trytes, low | load | `.rodata`, `.data` initialiser image |
-| D | **D-RAM** | *K* trytes, high | load/store | `.data`, `.bss`, heap, stack |
+The instruction space is unchanged: **I-ROM**, *N* slots × 32 trits, fetch-only, holding `.text`.
+
+Two consequences of the zero-centred D-RAM:
+
+- **The zero window replaces `gp`.** `LW.T rd, X0, imm12` reaches ±265,720 trytes around address
+  zero — a 531,441-tryte small-data area with no global-pointer register, no setup code and no
+  relocation pass. `.sdata`/`.sbss` straddle zero; the stack starts at the top of populated D-RAM
+  and grows down; the heap grows up.
+- **`.rodata` needs `LWA.T`**, since D-ROM sits in the `+` region outside the zero window — still
+  one instruction per access.
+
+**Sparseness costs nothing.** REBEL-6 has no concept of a "far" address: `LWA.T`/`SWA.T` carry a
+full 24-trit absolute immediate, so every address in the entire 282-billion-tryte space is reachable
+in exactly one instruction. The near/far machinery that makes sparse maps expensive on binary
+machines (`lui`+`addi` pairs, GOTs, base registers) does not exist here. An implementation decodes
+only as many trits as its populated windows require; the unpopulated remainder is never decoded.
 
 Startup copies `.data` from D-ROM to D-RAM with ordinary loads and stores. A linker script needs two
 output regions in one address space (`MEMORY { drom … dram … }`, `.data : AT> drom`) — nothing about
 this is REBEL-6-specific, and a stock C library needs no changes. Writes to D-ROM have no effect;
-whether they additionally raise a trap is implementation-defined.
+whether they additionally raise a trap is implementation-defined. MMIO access semantics (no
+reordering, no elision, tryte-granular access, misalignment faults) are normative and specified in
+the [platform document](rebel6-platform.md#mmio).
 
 **`.text` contains instructions only.** There are no literal pools: a target that dumps constants
 into the code stream and reads them PC-relatively, as ARM does with `ldr r0, =…`, cannot work here,
@@ -201,17 +289,21 @@ two spaces count different units is invisible to portable code.
 
 ### Representative sizing
 
-An MCU-class part uses a small fraction of the architectural address space. State the three regions
-in their own units, since "1 MT of ROM" is ambiguous about both which space and which cell:
+An MCU-class part uses a small fraction of the architectural address space. State the regions in
+their own units, since "1 MT of ROM" is ambiguous about both which space and which cell:
 
 - **I-ROM** ≈ 187,500 slots (≈ 6×10⁶ trits). This is *inside* the ±265,720-instruction reach of a
   single two-way branch, so branch relaxation never fires on such a part. The three-way branches'
   ±364 does not span it, which is why both forms exist.
-- **D-ROM + D-RAM** on the order of 1 MT and 3 MT (megatrytes). `LWA.T`/`SWA.T` reach ±141 billion
-  trytes, so every global is one instruction away regardless of where it sits.
+- **D-ROM** ≈ 1 MT (megatrytes), populated from the region base +47,071,589,414 upward.
+- **D-RAM** ≈ 3 MT, populated −1,500,000 … +1,500,000 around zero, with `__stack_top` at the top.
+- **MMIO** devices occupy small windows at the least-negative addresses of the `−` region — see the
+  [platform document](rebel6-platform.md#mmio) for the device map.
 
 Both address spaces are 24 trits wide — 3²⁴ ≈ 282 billion slots or trytes — so the architecture
-imposes no limit near these figures.
+imposes no limit near these figures. Sizes are implementation parameters: a games-class part (DOOM's
+shareware WAD alone is ≈4.2 MT of read-only data) simply populates more of each region; no
+addressing mode, relocation or instruction changes.
 
 ### Alignment
 
@@ -220,7 +312,8 @@ or return an implementation-defined result; no alignment check is mandated. The 
 natural alignment for all compiler-managed storage (word-aligned stack pointer, word-aligned
 allocations), and the **toolchain** enforces it: the assembler statically checks constant offsets
 against the access width, and the compiler expands to tryte sequences where alignment cannot be
-proven.
+proven. The single exception is MMIO, where misaligned access is a fault by rule — see the
+[platform document](rebel6-platform.md#mmio).
 
 This costs a minimal implementation nothing, which matters more in radix 3 than it would in radix 2.
 Testing `A ≡ 0 (mod k)` is a digit inspection only when every prime factor of `k` divides the radix.
@@ -271,7 +364,7 @@ Two practical notes:
   support in ARMv6) added it after software expansion proved too expensive at that scale. For
   MCU-class parts software expansion is the standard and correct answer — Cortex-M0 requires
   alignment outright — but if REBEL-6 scales up, this is the decision that returns. The natural
-  landing site is an explicit `LWU.T`/`SWU.T` pair in the reserved `xx+0` Extensions group: one
+  landing site is an explicit `LWU.T`/`SWU.T` pair in reserved extension encoding space: one
   instruction instead of ten, with the merge network and the mod-4 residue confined to that
   instruction's datapath rather than sitting in every access path.
 
@@ -331,6 +424,274 @@ JAL.T  X0, far_label     # 24-trit reach
 
 See the [Errata](#errata) for why the original branch group was replaced.
 
+## REBEL-6 Base Ternary
+
+The mandatory core. Every conforming implementation provides all instructions in this section.
+
+**Opcode groups (by last 2 trits):** `xx00` = Base Ternary (729 slots); `xx-0` = Base Binary / RV32I
+(729 slots); `xx+0` = Extensions (729 slots). The upper 2 trits encode the instruction category —
+the same nine categories in all three groups:
+
+| Upper trits | Category | Upper trits | Category | Upper trits | Category |
+|---|---|---|---|---|---|
+| `00` | I-type ALU | `--` | R-type ALU | `+-` | D / Control |
+| `0-` | Branch | `-0` | R-type Compare/Unary | `+0` | X / Imm |
+| `0+` | Store | `-+` | I-type Load | `++` | System |
+
+**Func:** upper 2 trits `00` in the base groups; lower 2 trits (LST) shown in the table discriminate
+the instruction. Pseudo-instructions carry the func of the architectural instruction they expand to.
+Extensions may additionally use non-`00` upper func trits — see
+[rebel6-extensions.md](rebel6-extensions.md).
+
+**2-trit long-immediate (last trit ≠ 0):** `++` LWA.T, `0+` LI.T, `-+` SWA.T, `+-` JAL.T, `0-` AIPC.T;
+`--` *reserved*.
+
+**Immediates:** `imm12` is a 12-trit immediate (±265,720); `imm24` is 24 trits (±141,214,768,240).
+`shamt` is a shift amount, **4 trits** (±40) in the rd2 slot — wide enough for RV32I's 5-bit field
+(0…31) and for any shift of a 24-trit register.
+
+**Shift fill.** A shift vacates trits, and the value shifted in is selected by a single **fill
+trit**: `−`, `0` or `+`. One trit expresses the three-valued choice exactly — a binary machine would
+need two bits and waste an encoding — and it costs no func slot, because the fill lives in a field
+the shift instructions do not otherwise use:
+
+| Shift form | Shift amount | Fill trit |
+|------------|--------------|-----------|
+| immediate (`SLI*.T`, `SRI*.T`) | rd2 slot = `imm[5:0]` | rs2 slot = `imm[11:6]` |
+| register (`SL*.T`, `SR*.T`) | rs2 (register) | rd2 slot (otherwise unused) |
+
+The mnemonic suffix names the fill: **N** = negative (`−`), **Z** = zero (`0`), **P** = positive
+(`+`). Because the fill is a datapath signal rather than a decode decision, it wires straight to the
+shifter's fill input — cheaper than synthesising the constant from separate func values. The
+consequence for decoders: **func alone does not identify a shift**; the fill trit must be read too.
+`ROT.T` is a cyclic shift, so it has no fill and requires the selector field to be zero (`ROT.T` was
+named `SC.T` before the A extension reclaimed that mnemonic — see [Errata E-3](#errata)).
+
+**Ternary logic operations** are the balanced-ternary extensions of the binary operations, chosen so
+that they agree *exactly* with RV32I's `or`/`and`/`xor` on the binary subset under REBEL-6's own
+0 → `−`, 1 → `+` mapping. `OR.T` is tritwise **max**, `AND.T` is tritwise **min**, and `XOR.T` is
+tritwise **−(a × b)**:
+
+| a | b | OR.T (max) | AND.T (min) | XOR.T (−a×b) |
+|---|---|------------|-------------|---------------|
+| `−` | `−` | `−` | `−` | `−` |
+| `−` | `0` | `0` | `−` | `0` |
+| `−` | `+` | `+` | `−` | `+` |
+| `0` | `0` | `0` | `0` | `0` |
+| `0` | `+` | `+` | `0` | `0` |
+| `+` | `+` | `+` | `+` | `−` |
+
+All three are commutative. Restricted to `{−, +}` these reproduce the binary truth tables exactly,
+so a binary-mode program and its ternary transliteration compute the same result. `XOR.T` is realised
+in the MRCS standard cell library in 18 transistors. Because these are per-trit-lane operations, they
+double as the packed 1-trit SIMD primitives — the [P extension](rebel6-extensions.md#p--packed-ternary-simd)
+builds on them rather than duplicating them. Arbitrary tritwise gates beyond these three are provided
+by the [Ztl extension](rebel6-extensions.md#ztl--ternary-logic)'s programmable truth-table
+instructions.
+
+Note that `0` is **not** the identity for `OR.T` — the identity for max is `−`. Merging disjoint
+zero-padded fields must use `ADD.T`, not `OR.T`; see [Memory Model](#memory-model).
+
+**Wordwise min/max, dual by negation.** `MIN.T` and `MAX.T` compare whole words (arithmetic select),
+unlike tritwise `AND.T`/`OR.T`. Their func codes are negatives of each other (`0-` ↔ `0+`),
+mirroring the identity `min(a,b) = −max(−a,−b)`.
+
+**Dual move.** `MV2.T rd1, rd2, rs1, rs2` performs two register copies in one instruction
+(both reads complete before either write). `SWAP.T a, b` is its operand-crossed pseudo-instruction —
+the R2v2 register exchange, generalised.
+
+**System group.** The five System instructions take no operands; all four operand slots are encoded
+zero. Their func assignments deliberately match REBEL-2 V2.2's `++` control group, with `TRET.T`
+taking the slot of its predecessor `IRET.T`. `ECALL.T`, `EBREAK.T` and `TRET.T` semantics — trap
+entry, cause codes, privilege banks — are specified in the
+[platform document](rebel6-platform.md#traps); `FENCE.T` and `WFI.T` in its
+[memory-consistency](rebel6-platform.md#memory-consistency) and
+[interrupt](rebel6-platform.md#interrupts) sections.
+
+**Comments:** `#`, `;`, `$`, `//` strip to end-of-line.
+
+| Mnemonic | Format | Opcode | Func | Operands | Category | Description |
+|----------|--------|--------|------|----------|----------|-------------|
+| ADD.T | R | --00 | -- | rd1, rs1, rs2 | Ternary ALU | rd1 = rs1 + rs2 |
+| SUB.T | R | --00 | -0 | rd1, rs1, rs2 | Ternary ALU | rd1 = rs1 − rs2 |
+| SLN.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill − |
+| SLZ.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill 0 |
+| SLP.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill + |
+| SRN.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill − |
+| SRZ.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill 0 |
+| SRP.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill + |
+| SLT.T | R | --00 | 00 | rd1, rs1, rs2 | Ternary ALU | rd1 = (rs1 < rs2) ? +1 : 0 |
+| OR.T | R | --00 | 0+ | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise max(rs1, rs2) |
+| XOR.T | R | --00 | +- | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise −(rs1 × rs2) |
+| AND.T | R | --00 | +0 | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise min(rs1, rs2) |
+| CMP.T | R | -000 | -- | rd1, rs1, rs2 | Ternary Compare | rd1 = three-way compare: +1, 0, or -1 |
+| STI.T | R | -000 | -0 | rd1, rs1 | Ternary ALU | rd1 = −rs1 (standard ternary inversion) |
+| MV2.T | R | -000 | -+ | rd1, rd2, rs1, rs2 | Ternary ALU | rd1 = rs1; rd2 = rs2 (dual move; reads before writes) |
+| MIN.T | R | -000 | 0- | rd1, rs1, rs2 | Ternary ALU | rd1 = min(rs1, rs2) (wordwise) |
+| MAX.T | R | -000 | 0+ | rd1, rs1, rs2 | Ternary ALU | rd1 = max(rs1, rs2) (wordwise) |
+| ADDI.T | I | 0000 | 00 | rd1, rs1, imm12 | Ternary ALU | rd1 = rs1 + imm |
+| SLIN.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill − |
+| SLIZ.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill 0 |
+| SLIP.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill + |
+| SRIN.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill − |
+| SRIZ.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill 0 |
+| SRIP.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill + |
+| ROT.T | I | 0000 | -+ | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 rotated by shamt mod 24 (cyclic, no fill; + = toward MST) |
+| SLTI.T | I | 0000 | 0- | rd1, rs1, imm12 | Ternary ALU | rd1 = (rs1 < imm12) ? +1 : 0 |
+| ORI.T | I | 0000 | 0+ | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise max(rs1, imm12) |
+| XORI.T | I | 0000 | +- | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise −(rs1 × imm12) |
+| ANDI.T | I | 0000 | +0 | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise min(rs1, imm12) |
+| LW.T | I | -+00 | -- | rd1, rs1, imm12 | Ternary Load | rd1 = mem[rs1 + imm12] (word) |
+| LH.T | I | -+00 | -0 | rd1, rs1, imm12 | Ternary Load | rd1 = mem[rs1 + imm12] (halfword) |
+| LT.T | I | -+00 | -+ | rd1, rs1, imm12 | Ternary Load | rd1 = mem[rs1 + imm12] (tryte) |
+| JALR.T | I | -+00 | 0- | rd1, rs1, imm12 | Ternary Control | rd1 = PC+1; PC = rs1 + imm12 |
+| BCGS.T | B | 0-00 | -- | rs1, rs2, off1, off2 | Ternary Branch | rs1 > rs2 → PC+off1; rs1 < rs2 → PC+off2; else PC+1 (±364) |
+| BCEG.T | B | 0-00 | -0 | rs1, rs2, off1, off2 | Ternary Branch | rs1 == rs2 → PC+off1; rs1 > rs2 → PC+off2; else PC+1 (±364) |
+| BEQ.T | B | 0-00 | -+ | rs1, rs2, disp | Ternary Branch | branch if rs1 == rs2 (±265720) |
+| BNE.T | B | 0-00 | 0- | rs1, rs2, disp | Ternary Branch | branch if rs1 ≠ rs2 (±265720) |
+| BLT.T | B | 0-00 | 00 | rs1, rs2, disp | Ternary Branch | branch if rs1 < rs2 (±265720) |
+| BGE.T | B | 0-00 | 0+ | rs1, rs2, disp | Ternary Branch | branch if rs1 ≥ rs2 (±265720) |
+| SW.T | B | 0+00 | -- | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (word) |
+| SH.T | B | 0+00 | -0 | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (halfword) |
+| ST.T | B | 0+00 | -+ | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (tryte) |
+| MAJV.T | D | +-00 | -- | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = majority(rs1, rs2, rs3) |
+| MINV.T | D | +-00 | -0 | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = minority(rs1, rs2, rs3) |
+| LI2.T | X | +000 | -- | rd1, rd2, imm1, imm2 | Ternary ALU | rd1 = imm1;  rd2 = imm2 |
+| FENCE.T | R | ++00 | -0 | | Ternary System | full memory fence (pred/succ fields reserved zero) |
+| WFI.T | R | ++00 | -+ | | Ternary System | wait for interrupt (see [platform](rebel6-platform.md#interrupts)) |
+| TRET.T | R | ++00 | +- | | Ternary System | trap return from the current privilege level's bank |
+| EBREAK.T | R | ++00 | +0 | | Ternary System | breakpoint trap (cause −9) |
+| ECALL.T | R | ++00 | ++ | | Ternary System | environment call (cause −6/−7/−8 by mode) |
+| NOP.T | I | 0000 | 00 | | Pseudo | no-op (all-zero 32 trits = ADDI.T X0, X0, 0) |
+| MV.T | I | 0000 | 00 | rd1, rs1 | Pseudo | rd1 = rs1 (ADDI.T rd1, rs1, 0) |
+| SWAP.T | R | -000 | -+ | rd1, rd2 | Pseudo | exchange rd1 ↔ rd2 (MV2.T rd1, rd2, rd2, rd1) |
+| BGT.T | B | 0-00 | 00 | rs1, rs2, disp | Pseudo | branch if rs1 > rs2 (BLT.T rs2, rs1, disp) |
+| BLE.T | B | 0-00 | 0+ | rs1, rs2, disp | Pseudo | branch if rs1 ≤ rs2 (BGE.T rs2, rs1, disp) |
+| LWA.T | G | ++ | — | rd1, imm24 | Ternary Load | rd1 = mem[imm24] (load word absolute) |
+| LI.T | G | 0+ | — | rd1, imm24 | Ternary ALU | rd1 = imm24 (24-trit load immediate) |
+| SWA.T | Y | -+ | — | rs1, imm24 | Ternary Store | mem[imm24] = rs1 (store word absolute) |
+| JAL.T | G | +- | — | rd1, imm24 | Ternary Control | rd1 = PC+1; PC = PC + imm24 |
+| AIPC.T | G | 0- | — | rd1, imm24 | Ternary Control | rd1 = PC + imm24 (code address; see [Memory Model](#memory-model)) |
+
+## REBEL-6 Base Binary (optional RV32I compatibility layer)
+
+**Optional.** A ternary-only implementation (`R6T` profile) omits this entire group; the L-type
+passthrough and the Zicsr extension require it. When present, it is complete: **every RV32I
+instruction executes** — but not every RV32I instruction has a binary encoding here, and that is by
+rule, not omission.
+
+**The completeness rule.** The binary group contains exactly the RV32I instructions whose semantics
+are **representation-dependent** — operations whose result depends on the operand being a 32-bit
+two's-complement bit pattern rather than an abstract integer:
+
+| Family | Why representation-dependent |
+|--------|------------------------------|
+| ADD, SUB, ADDI | wrap modulo 2³² (ternary wraps modulo 3²⁴) |
+| SLL, SRL, SRA + immediates | shift bit patterns; logical vs arithmetic right split |
+| SLTU, SLTIU, BLTU, BGEU | unsigned comparison — an artefact of the bit-pattern reading |
+| OR, AND, XOR + immediates | bitwise logic on bits, not trits |
+| LB, LH, LBU, LHU, SB, SH | byte/halfword granularity with sign/zero extension |
+| LW, SW | word access with binary wrap semantics on the loaded value's use |
+
+Everything **representation-independent** — where the RV32I semantics coincide with the ternary
+instruction's on translated values — is an **assembler alias** onto Base Ternary, exactly what the
+R2R translator emits:
+
+| RV32I mnemonic | Assembles / translates to | Note |
+|----------------|---------------------------|------|
+| `lui rd, imm` | `LI.T rd, imm<<12` | one instruction; no hi/lo split |
+| `auipc rd, imm` | `AIPC.T rd, %pc_rel(...)` | code symbols only — see [Memory Model](#memory-model) |
+| `jal rd, off` | `JAL.T rd, off÷4` | displacement rescaled |
+| `jalr rd, rs, off` | `JALR.T rd, rs, off÷4` | displacement rescaled |
+| `beq/bne/blt/bge` | `BEQ.T/BNE.T/BLT.T/BGE.T` | signed compare = value compare |
+| `slt/slti` | `SLT.T/SLTI.T` | signed compare = value compare |
+| `ecall / ebreak` | `ECALL.T / EBREAK.T` | trap semantics identical |
+| `fence` | `FENCE.T` | full fence |
+| `mv/nop/li` (pseudos) | `MV.T/NOP.T/LI.T` | |
+
+The assembler accepts these RV32I mnemonics and emits the ternary encodings; the L-type hardware
+translator performs the same rewrite at fetch. This is why the binary group's 27 instructions
+suffice for all of RV32I.
+
+**No growth beyond RV32I is planned.** RV32M/RV32A binary encodings do not exist: `rv32i` binaries
+perform multiply and divide through the compiler's soft routines (`__mulsi3`, `__divsi3`), which run
+unmodified. Ternary-native code uses the [M and A extensions](rebel6-extensions.md) instead. The one
+sanctioned binary-compatibility extension is
+[Zicsr](rebel6-extensions.md#zicsr--csr-access-requires-base-binary).
+
+| Mnemonic | Format | Opcode | Func | Operands | Category | Description |
+|----------|--------|--------|------|----------|----------|-------------|
+| ADD | R | ---0 | -- | rd1, rs1, rs2 | Binary ALU | rd1 = rs1 + rs2 (mod 2³²) |
+| SUB | R | ---0 | -0 | rd1, rs1, rs2 | Binary ALU | rd1 = rs1 − rs2 (mod 2³²) |
+| SLL | R | ---0 | -+ | rd1, rs1, rs2 | Binary ALU | rd1 = rs1 << rs2 |
+| SRL | R | ---0 | 0- | rd1, rs1, rs2 | Binary ALU | logical shift right |
+| SRA | R | ---0 | 00 | rd1, rs1, rs2 | Binary ALU | arithmetic shift right |
+| SLTU | R | ---0 | 0+ | rd1, rs1, rs2 | Binary ALU | rd1 = (rs1 <u rs2) ? 1 : 0 |
+| OR | R | ---0 | +- | rd1, rs1, rs2 | Binary ALU | bitwise OR |
+| XOR | R | ---0 | +0 | rd1, rs1, rs2 | Binary ALU | bitwise XOR |
+| AND | R | ---0 | ++ | rd1, rs1, rs2 | Binary ALU | bitwise AND |
+| ADDI | I | 00-0 | -- | rd1, rs1, imm12 | Binary ALU | rd1 = rs1 + imm (mod 2³²) |
+| SLLI | I | 00-0 | -0 | rd1, rs1, shamt | Binary ALU | logical left shift immediate |
+| SRLI | I | 00-0 | -+ | rd1, rs1, shamt | Binary ALU | logical right shift immediate |
+| SRAI | I | 00-0 | 0- | rd1, rs1, shamt | Binary ALU | arithmetic right shift immediate |
+| SLTIU | I | 00-0 | 00 | rd1, rs1, imm12 | Binary ALU | rd1 = (rs1 <u imm) ? 1 : 0 |
+| ORI | I | 00-0 | 0+ | rd1, rs1, imm12 | Binary ALU | bitwise OR immediate |
+| XORI | I | 00-0 | +- | rd1, rs1, imm12 | Binary ALU | bitwise XOR immediate |
+| ANDI | I | 00-0 | +0 | rd1, rs1, imm12 | Binary ALU | bitwise AND immediate |
+| LW | I | -+-0 | -- | rd1, rs1, imm12 | Binary Load | load word |
+| LH | I | -+-0 | -0 | rd1, rs1, imm12 | Binary Load | load halfword signed |
+| LB | I | -+-0 | -+ | rd1, rs1, imm12 | Binary Load | load byte signed |
+| LHU | I | -+-0 | 0- | rd1, rs1, imm12 | Binary Load | load halfword unsigned |
+| LBU | I | -+-0 | 00 | rd1, rs1, imm12 | Binary Load | load byte unsigned |
+| BLTU | B | 0--0 | -- | rs1, rs2, imm12 | Binary Branch | branch if rs1 <u rs2 |
+| BGEU | B | 0--0 | -0 | rs1, rs2, imm12 | Binary Branch | branch if rs1 ≥u rs2 |
+| SW | B | 0+-0 | -- | rs1, rs2, imm12 | Binary Store | store word |
+| SH | B | 0+-0 | -0 | rs1, rs2, imm12 | Binary Store | store halfword |
+| SB | B | 0+-0 | -+ | rs1, rs2, imm12 | Binary Store | store byte |
+
+## Extensions
+
+All extensions are **ternary-only designs**; the exception is Zicsr, a binary-compatibility
+extension that requires Base Binary. Full specifications, encodings and rationale:
+[rebel6-extensions.md](rebel6-extensions.md).
+
+| Ext | Name | Contents | Status |
+|-----|------|----------|--------|
+| **M** | Multiply / divide | MUL.T, MULH.T, DIV.T, REM.T, MOD.T, MAC.T | specified |
+| **A** | Atomics | LR.T, SC.T, AMO{SWAP,ADD,AND,OR,XOR,MIN,MAX}.T | specified |
+| **F** | Float ([trifloat24](rebel6-trifloat24.md)) | FADD.T, FSUB.T, FMUL.T, FDIV.T, FMA.T, FCMP.T, FCVT | specified (softfloat-first) |
+| **P** | Packed ternary SIMD | TMAC.T, TSUM.T, QNT.T, HMAX.T (+ equivalences) | specified; tryte-lane ops reserved |
+| **Ztl** | Ternary logic | TLUT.T, TLUTI.T + canonical gate library (NTI, PTI, MTI, KIMP, cycles, …) | specified |
+| **Ztb** | Trit manipulation | CLZT.T, TCNT.T | specified |
+| **Zicsr** | CSR access | CSRRW/S/C(+I) — decodes onto trap registers | specified; **requires Base Binary** |
+| **V** | Vector | — | reserved |
+
+### Opcode map
+
+Occupancy of the canonical func plane (func upper trits `00`; 9 funcs per opcode). Each group also
+holds 8 further func planes per opcode, all reserved.
+
+<table class="r6-opmap">
+<thead>
+<tr><th>Category (upper trits)</th><th class="r6-t">Base Ternary <code>xx00</code></th><th class="r6-b">Base Binary <code>xx-0</code></th><th class="r6-e">Extensions <code>xx+0</code></th></tr>
+</thead>
+<tbody>
+<tr><td><code>00</code> I-ALU</td><td class="r6-t"><code>0000</code> — 8/9 (ADDI, shifts, ROT, SLTI, ORI, XORI, ANDI)</td><td class="r6-b"><code>00-0</code> — 8/9 (RV32I I-ALU)</td><td class="r6-e"><code>00+0</code> — 1/9 (Ztl: TLUTI)</td></tr>
+<tr><td><code>0-</code> Branch</td><td class="r6-t"><code>0-00</code> — 6/9 (3-way + 2-way)</td><td class="r6-b"><code>0--0</code> — 2/9 (BLTU, BGEU)</td><td class="r6-e"><code>0-+0</code> — reserved</td></tr>
+<tr><td><code>0+</code> Store</td><td class="r6-t"><code>0+00</code> — 3/9 (SW, SH, ST)</td><td class="r6-b"><code>0+-0</code> — 3/9 (SW, SH, SB)</td><td class="r6-e"><code>0++0</code> — reserved</td></tr>
+<tr><td><code>--</code> R-ALU</td><td class="r6-t"><code>--00</code> — 8/9 (ALU, shifts, logic)</td><td class="r6-b"><code>---0</code> — <b>9/9 full</b></td><td class="r6-e"><code>--+0</code> — <b>9/9 full</b> (M: 5, F arith: 4)</td></tr>
+<tr><td><code>-0</code> Compare/Unary</td><td class="r6-t"><code>-000</code> — 5/9 (CMP, STI, MV2, MIN, MAX)</td><td class="r6-b"><code>-0-0</code> — 0/9</td><td class="r6-e"><code>-0+0</code> — 8/9 (F cmp/cvt: 3, Ztb: 2, P scalar: 3)</td></tr>
+<tr><td><code>-+</code> Load</td><td class="r6-t"><code>-+00</code> — 4/9 (LW, LH, LT, JALR)</td><td class="r6-b"><code>-+-0</code> — 5/9 (RV32I loads)</td><td class="r6-e"><code>-++0</code> — <b>9/9 full</b> (A: LR, SC, 7×AMO)</td></tr>
+<tr><td><code>+-</code> D/Control</td><td class="r6-t"><code>+-00</code> — 2/9 (MAJV, MINV)</td><td class="r6-b"><code>+--0</code> — 0/9</td><td class="r6-e"><code>+-+0</code> — 4/9 (TLUT, MAC, FMA, TMAC)</td></tr>
+<tr><td><code>+0</code> X/Imm</td><td class="r6-t"><code>+000</code> — 1/9 (LI2)</td><td class="r6-b"><code>+0-0</code> — 0/9</td><td class="r6-e"><code>+0+0</code> — 0/9 (reserved for P growth)</td></tr>
+<tr><td><code>++</code> System</td><td class="r6-t"><code>++00</code> — 5/9 (FENCE, WFI, TRET, EBREAK, ECALL)</td><td class="r6-b"><code>++-0</code> — 6/9 (Zicsr)</td><td class="r6-e"><code>+++0</code> — reserved</td></tr>
+</tbody>
+</table>
+
+**2-trit long-immediate space** (last trit ≠ 0): 5 of 6 slots used (`LWA.T`, `LI.T`, `SWA.T`,
+`JAL.T`, `AIPC.T`); `--` remains reserved — it is the scarcest encoding resource in the ISA and is
+not to be spent casually.
+
 ## Linking
 
 REBEL-6 links **statically**: object files and libraries are combined into a single machine-code
@@ -380,8 +741,8 @@ Three properties are encoded in the relocation type rather than inferred:
 PC-relative by definition.
 
 `DISP12` is needed only where a load/store displacement is not a compile-time constant. With
-gp-relative addressing out of scope and the `%lo` pairs already collapsed, a minimal C toolchain may
-never emit one; it is listed for completeness rather than as a requirement.
+gp-relative addressing subsumed by the zero window and the `%lo` pairs already collapsed, a minimal
+C toolchain may never emit one; it is listed for completeness rather than as a requirement.
 
 ### Two fixups in one instruction
 
@@ -425,156 +786,47 @@ The linker rejects rather than truncates:
   no alignment check (see [Alignment](#alignment)), so the toolchain is the only place misalignment
   is caught.
 
-### Open: ABI
+### ABI
 
-The calling convention is inherited from RV32I ilp32 — register roles (`sp`, `ra`, `gp`, `a0`–`a7`,
+The calling convention is inherited from RV32I ilp32 — register roles (`sp`, `ra`, `a0`–`a7`,
 `s0`–`s11`, `t0`–`t6`), argument and return passing, the caller/callee-saved split, and ilp32 type
-sizes and struct layout. What is **not** yet defined is which 32 of REBEL-6's 729 registers carry
-those roles, or what the remaining 697 are for. Transpiled RV32I code never notices, but native
-ternary assembly, a link-time optimiser wanting scratch registers, and any hand-written runtime all
-need the answer. Unresolved as of this revision.
+sizes and struct layout — with `gp` retired in favour of the zero window. The hart/register-window
+**variants** (`r6-single`, `r6-mp3`, `r6-mp9`, `r6-mp27`) and the fixed system/streaming register
+indices are specified in the [platform document](rebel6-platform.md#harts-and-variants); the
+register role table (identity mapping xN ↔ X+N), the two-register return, the crt0 contract and
+the semihosting convention are normative in [rebel6-abi.md](rebel6-abi.md).
 
-## Mnemonics
+## REBEL-2 V2.2 migration
 
-**Opcode groups (by last 2 trits):** `xx00` = Base Ternary (729 slots); `xx-0` = Base Binary / RV32I (729 slots); `xx+0` = Extensions (729 slots, reserved).
-The upper 2 trits encode the instruction category — same in both ternary and binary:
-`00`=I-type ALU, `0-`=Branch, `0+`=Store, `--`=R-type ALU, `-+`=I-type Load, `+-`=D/Control, `+0`=X/Imm, `++`=System.
+Complete disposition of every REBEL-2 V2.2 instruction in REBEL-6. Nothing is dropped silently:
+each mnemonic is carried, renamed, subsumed by an equivalent, or expressible as a documented
+composition.
 
-**Func:** upper 2 trits always `00`; lower 2 trits (LST) shown in table discriminate the instruction.
-Pseudo-instructions carry the func of the architectural instruction they expand to.
-
-**2-trit long-immediate (last trit ≠ 0):** `++` LWA.T, `0+` LI.T, `-+` SWA.T, `+-` JAL.T, `0-` AIPC.T; `--` *reserved*.
-
-**Immediates:** `imm12` is a 12-trit immediate (±265,720); `imm24` is 24 trits (±141,214,768,240).
-`shamt` is a shift amount, **4 trits** (±40) in the rd2 slot — wide enough for RV32I's 5-bit field
-(0…31) and for any shift of a 24-trit register.
-
-**Shift fill.** A shift vacates trits, and the value shifted in is selected by a single **fill
-trit**: `−`, `0` or `+`. One trit expresses the three-valued choice exactly — a binary machine would
-need two bits and waste an encoding — and it costs no func slot, because the fill lives in a field
-the shift instructions do not otherwise use:
-
-| Shift form | Shift amount | Fill trit |
-|------------|--------------|-----------|
-| immediate (`SLI*.T`, `SRI*.T`) | rd2 slot = `imm[5:0]` | rs2 slot = `imm[11:6]` |
-| register (`SL*.T`, `SR*.T`) | rs2 (register) | rd2 slot (otherwise unused) |
-
-The mnemonic suffix names the fill: **N** = negative (`−`), **Z** = zero (`0`), **P** = positive
-(`+`). Because the fill is a datapath signal rather than a decode decision, it wires straight to the
-shifter's fill input — cheaper than synthesising the constant from separate func values. The
-consequence for decoders: **func alone does not identify a shift**; the fill trit must be read too.
-`SC.T` is a cyclic shift, so it has no fill and requires the selector field to be zero.
-
-**Ternary logic operations** are the balanced-ternary extensions of the binary operations, chosen so
-that they agree *exactly* with RV32I's `or`/`and`/`xor` on the binary subset under REBEL-6's own
-0 → `−`, 1 → `+` mapping. `OR.T` is tritwise **max**, `AND.T` is tritwise **min**, and `XOR.T` is
-tritwise **−(a × b)**:
-
-| a | b | OR.T (max) | AND.T (min) | XOR.T (−a×b) |
-|---|---|------------|-------------|---------------|
-| `−` | `−` | `−` | `−` | `−` |
-| `−` | `0` | `0` | `−` | `0` |
-| `−` | `+` | `+` | `−` | `+` |
-| `0` | `0` | `0` | `0` | `0` |
-| `0` | `+` | `+` | `0` | `0` |
-| `+` | `+` | `+` | `+` | `−` |
-
-All three are commutative. Restricted to `{−, +}` these reproduce the binary truth tables exactly,
-so a binary-mode program and its ternary transliteration compute the same result. `XOR.T` is realised
-in the MRCS standard cell library in 18 transistors.
-
-Note that `0` is **not** the identity for `OR.T` — the identity for max is `−`. Merging disjoint
-zero-padded fields must use `ADD.T`, not `OR.T`; see [Memory Model](#memory-model).
-
-**Comments:** `#`, `;`, `$`, `//` strip to end-of-line.
-
-| Mnemonic | Format | Opcode | Func | Operands | Category | Description |
-|----------|--------|--------|------|----------|----------|-------------|
-| ADD.T | R | --00 | -- | rd1, rs1, rs2 | Ternary ALU | rd1 = rs1 + rs2 |
-| SUB.T | R | --00 | -0 | rd1, rs1, rs2 | Ternary ALU | rd1 = rs1 − rs2 |
-| SLN.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill − |
-| SLZ.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill 0 |
-| SLP.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill + |
-| SRN.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill − |
-| SRZ.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill 0 |
-| SRP.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill + |
-| SLT.T | R | --00 | 00 | rd1, rs1, rs2 | Ternary ALU | rd1 = (rs1 < rs2) ? +1 : 0 |
-| OR.T | R | --00 | 0+ | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise max(rs1, rs2) |
-| XOR.T | R | --00 | +- | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise −(rs1 × rs2) |
-| AND.T | R | --00 | +0 | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise min(rs1, rs2) |
-| CMP.T | R | -000 | -- | rd1, rs1, rs2 | Ternary ALU | rd1 = three-way compare: +1, 0, or -1 |
-| STI.T | R | -000 | -0 | rd1, rs1 | Ternary ALU | rd1 = −rs1 (standard ternary inversion) |
-| ADDI.T | I | 0000 | 00 | rd1, rs1, imm12 | Ternary ALU | rd1 = rs1 + imm |
-| SLIN.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill − |
-| SLIZ.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill 0 |
-| SLIP.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill + |
-| SRIN.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill − |
-| SRIZ.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill 0 |
-| SRIP.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill + |
-| SC.T | I | 0000 | -+ | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 cyclically shifted by shamt (no fill) |
-| SLTI.T | I | 0000 | 0- | rd1, rs1, imm12 | Ternary ALU | rd1 = (rs1 < imm12) ? +1 : 0 |
-| ORI.T | I | 0000 | 0+ | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise max(rs1, imm12) |
-| XORI.T | I | 0000 | +- | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise −(rs1 × imm12) |
-| ANDI.T | I | 0000 | +0 | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise min(rs1, imm12) |
-| LW.T | I | -+00 | -- | rd1, rs1, imm12 | Ternary Load | rd1 = mem[rs1 + imm12] (word) |
-| LH.T | I | -+00 | -0 | rd1, rs1, imm12 | Ternary Load | rd1 = mem[rs1 + imm12] (halfword) |
-| LT.T | I | -+00 | -+ | rd1, rs1, imm12 | Ternary Load | rd1 = mem[rs1 + imm12] (tryte) |
-| JALR.T | I | -+00 | 0- | rd1, rs1, imm12 | Ternary Control | rd1 = PC+1; PC = rs1 + imm12 |
-| BCGS.T | B | 0-00 | -- | rs1, rs2, off1, off2 | Ternary Branch | rs1 > rs2 → PC+off1; rs1 < rs2 → PC+off2; else PC+1 (±364) |
-| BCEG.T | B | 0-00 | -0 | rs1, rs2, off1, off2 | Ternary Branch | rs1 == rs2 → PC+off1; rs1 > rs2 → PC+off2; else PC+1 (±364) |
-| BEQ.T | B | 0-00 | -+ | rs1, rs2, disp | Ternary Branch | branch if rs1 == rs2 (±265720) |
-| BNE.T | B | 0-00 | 0- | rs1, rs2, disp | Ternary Branch | branch if rs1 ≠ rs2 (±265720) |
-| BLT.T | B | 0-00 | 00 | rs1, rs2, disp | Ternary Branch | branch if rs1 < rs2 (±265720) |
-| BGE.T | B | 0-00 | 0+ | rs1, rs2, disp | Ternary Branch | branch if rs1 ≥ rs2 (±265720) |
-| SW.T | B | 0+00 | -- | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (word) |
-| SH.T | B | 0+00 | -0 | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (halfword) |
-| ST.T | B | 0+00 | -+ | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (tryte) |
-| MAJV.T | D | +-00 | -- | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = majority(rs1, rs2, rs3) |
-| MINV.T | D | +-00 | -0 | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = minority(rs1, rs2, rs3) |
-| LI2.T | X | +000 | -- | rd1, rd2, imm1, imm2 | Ternary ALU | rd1 = imm1;  rd2 = imm2 |
-| NOP.T | I | 0000 | 00 | | Pseudo | no-op (all-zero 32 trits = ADDI.T X0, X0, 0) |
-| MV.T | I | 0000 | 00 | rd1, rs1 | Pseudo | rd1 = rs1 (ADDI.T rd1, rs1, 0) |
-| BGT.T | B | 0-00 | 00 | rs1, rs2, disp | Pseudo | branch if rs1 > rs2 (BLT.T rs2, rs1, disp) |
-| BLE.T | B | 0-00 | 0+ | rs1, rs2, disp | Pseudo | branch if rs1 ≤ rs2 (BGE.T rs2, rs1, disp) |
-| LWA.T | G | ++ | — | rd1, imm24 | Ternary Load | rd1 = mem[imm24] (load word absolute) |
-| LI.T | G | 0+ | — | rd1, imm24 | Ternary ALU | rd1 = imm24 (24-trit load immediate) |
-| SWA.T | Y | -+ | — | rs1, imm24 | Ternary Store | mem[imm24] = rs1 (store word absolute) |
-| JAL.T | G | +- | — | rd1, imm24 | Ternary Control | rd1 = PC+1; PC = PC + imm24 |
-| AIPC.T | G | 0- | — | rd1, imm24 | Ternary Control | rd1 = PC + imm24 (code address; see [Memory Model](#memory-model)) |
-| ADD | R | ---0 | -- | rd1, rs1, rs2 | Binary ALU | rd1 = rs1 + rs2 |
-| SUB | R | ---0 | -0 | rd1, rs1, rs2 | Binary ALU | rd1 = rs1 − rs2 |
-| SLL | R | ---0 | -+ | rd1, rs1, rs2 | Binary ALU | rd1 = rs1 << rs2 |
-| SRL | R | ---0 | 0- | rd1, rs1, rs2 | Binary ALU | logical shift right |
-| SRA | R | ---0 | 00 | rd1, rs1, rs2 | Binary ALU | arithmetic shift right |
-| SLTU | R | ---0 | 0+ | rd1, rs1, rs2 | Binary ALU | rd1 = (rs1 <u rs2) ? 1 : 0 |
-| OR | R | ---0 | +- | rd1, rs1, rs2 | Binary ALU | bitwise OR |
-| XOR | R | ---0 | +0 | rd1, rs1, rs2 | Binary ALU | bitwise XOR |
-| AND | R | ---0 | ++ | rd1, rs1, rs2 | Binary ALU | bitwise AND |
-| ADDI | I | 00-0 | -- | rd1, rs1, imm12 | Binary ALU | rd1 = rs1 + imm |
-| SLLI | I | 00-0 | -0 | rd1, rs1, shamt | Binary ALU | logical left shift immediate |
-| SRLI | I | 00-0 | -+ | rd1, rs1, shamt | Binary ALU | logical right shift immediate |
-| SRAI | I | 00-0 | 0- | rd1, rs1, shamt | Binary ALU | arithmetic right shift immediate |
-| SLTIU | I | 00-0 | 00 | rd1, rs1, imm12 | Binary ALU | rd1 = (rs1 <u imm) ? 1 : 0 |
-| ORI | I | 00-0 | 0+ | rd1, rs1, imm12 | Binary ALU | bitwise OR immediate |
-| XORI | I | 00-0 | +- | rd1, rs1, imm12 | Binary ALU | bitwise XOR immediate |
-| ANDI | I | 00-0 | +0 | rd1, rs1, imm12 | Binary ALU | bitwise AND immediate |
-| LW | I | -+-0 | -- | rd1, rs1, imm12 | Binary Load | load word |
-| LH | I | -+-0 | -0 | rd1, rs1, imm12 | Binary Load | load halfword signed |
-| LB | I | -+-0 | -+ | rd1, rs1, imm12 | Binary Load | load byte signed |
-| LHU | I | -+-0 | 0- | rd1, rs1, imm12 | Binary Load | load halfword unsigned |
-| LBU | I | -+-0 | 00 | rd1, rs1, imm12 | Binary Load | load byte unsigned |
-| BLTU | B | 0--0 | -- | rs1, rs2, imm12 | Binary Branch | branch if rs1 <u rs2 |
-| BGEU | B | 0--0 | -0 | rs1, rs2, imm12 | Binary Branch | branch if rs1 ≥u rs2 |
-| SW | B | 0+-0 | -- | rs1, rs2, imm12 | Binary Store | store word |
-| SH | B | 0+-0 | -0 | rs1, rs2, imm12 | Binary Store | store halfword |
-| SB | B | 0+-0 | -+ | rs1, rs2, imm12 | Binary Store | store byte |
+| R2v2 | REBEL-6 disposition |
+|------|---------------------|
+| ADD.T, ADDI.T, SUB.T, STI.T, BCEG.T, BNE.T, JAL.T, JALR.T, LI.T, LI2.T, MAJV.T, SLI\*.T, SRI\*.T, MV.T, NOP.T | Base Ternary (present, widened) |
+| CMPW.T | ≡ `CMP.T` (wordwise three-way compare) |
+| CMPT.T (tritwise compare) | `CMPT.T` canonical gate over `TLUT.T` — [Ztl](rebel6-extensions.md#ztl--ternary-logic) |
+| MAXT.T / MINT.T (tritwise) | ≡ `OR.T` / `AND.T` — tritwise max/min already in base |
+| MAXI.T / MINI.T (tritwise, imm) | ≡ `ORI.T` / `ANDI.T` |
+| MAXW.T / MINW.T (wordwise) | `MAX.T` / `MIN.T` — new in base group `-000` |
+| CMPWI.T / CMPTI.T | composition: `LI.T` + register form (no dedicated encoding) |
+| MUL.T, MULH.T, DIV.T, REM.T, MOD.T | [M extension](rebel6-extensions.md#m--integer-multiply--divide) |
+| SWAP.T | pseudo over new `MV2.T` (base `-000`) |
+| WFI.T, ECALL.T, EBREAK.T, FENCE.T | Base Ternary System group `++00` (same funcs as R2v2) |
+| IRET.T | superseded by `TRET.T` (same func slot `+-`) |
+| LPC.T | ≡ `AIPC.T` |
+| SC.T (cyclic shift) | renamed `ROT.T`, encoding unchanged — [Errata E-3](#errata) |
+| CYCLEUP.T | `CYU.T` canonical gate over `TLUTI.T` — [Ztl](rebel6-extensions.md#ztl--ternary-logic) |
+| NTI.T, PTI.T, MTI.T, KIMP.T | canonical gates over `TLUTI.T`/`TLUT.T`, truth tables now pinned — [Ztl](rebel6-extensions.md#ztl--ternary-logic) |
+| LD2.T / ST2.T | not carried — REBEL-2-specific trit-pair memory ops; superseded by the tryte-addressed `LT.T`/`LH.T`/`LW.T` family |
 
 ## Errata
 
-Corrections to the REBEL-6 definition as originally published in the MSc thesis of Bodahl. Neither
-item is discussed in the 2025 ISMVL REBEL-6 paper, which does not cover the branch encoding.
+Corrections to the REBEL-6 definition as originally published in the MSc thesis of Bodahl. None of
+these items is discussed in the 2025 ISMVL REBEL-6 paper, which does not cover the branch encoding.
 
-A third divergence is *not* an erratum against the specification: the Ternary Workbench reference
+A further divergence is *not* an erratum against the specification: the Ternary Workbench reference
 assembler encoded I-type and B-type immediates in a single 6-trit slot (±364) rather than the
 specified 12 trits, which silently narrowed every immediate and offset — including the RV32I-parity
 binary instructions — to roughly a sixth of the intended range. That was an implementation bug and
@@ -646,3 +898,25 @@ needs `lui`+`lw`; they consume no base register. `LW.T`/`SW.T` handle addresses 
 stack slots, struct fields, array elements — which an absolute form structurally cannot express.
 Withdrawing either one would leave a gap that the other cannot fill, and withdrawing the indexed word
 form in particular would leave the ISA able to index a halfword and a tryte but not a word.
+
+### E-3 — the cyclic shift is renamed `SC.T` → `ROT.T`
+
+**Defect.** The [A extension](rebel6-extensions.md#a--atomics) adopts the RISC-V atomics naming —
+`LR.T` (load-reserved) and `SC.T` (store-conditional) — because those names are load-bearing across
+the entire RTOS and systems-software literature the extension exists to serve. The base ISA's cyclic
+shift already used `SC.T` ("shift cyclic"), inherited from REBEL-2. One mnemonic cannot name both a
+shift and a store-conditional.
+
+**Resolution.** The cyclic shift is renamed **`ROT.T`** (rotate) — the universal name for the
+operation. Its encoding is unchanged (opcode `0000`, func `-+`, selector field zero); the balanced
+`shamt` already expresses both directions (positive rotates toward the MST, negative away), so one
+mnemonic still covers left and right rotation. `SC.T` now refers exclusively to the A extension's
+store-conditional. REBEL-2 V2.2's documentation is annotated with the same rename to keep the family
+consistent.
+
+**Compatibility.** Machine code is unaffected — this is a rename, not a re-encoding. Assemblers
+should accept `SC.T` as a deprecated alias for the rotate *only* when the A extension is not enabled,
+and must reject the ambiguity otherwise. The Ternary Workbench reference assembler implements the
+rename: on REBEL-6 (where the A extension is always in the table) `ROT.T` is the rotate and `SC.T`
+is exclusively the store-conditional; on REBEL-2 V2.0 and V2.2 (no atomics) `SC.T` remains a
+deprecated alias and disassembly prints `ROT.T`.
