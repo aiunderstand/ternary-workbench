@@ -560,8 +560,8 @@ entry, cause codes, privilege banks — are specified in the
 | FENCE.T | R | ++00 | -0 | | Ternary System | full memory fence (pred/succ fields reserved zero) |
 | WFI.T | R | ++00 | -+ | | Ternary System | wait for interrupt (see [platform](rebel6-platform.md#interrupts)) |
 | TRET.T | R | ++00 | +- | | Ternary System | trap return from the current privilege level's bank |
-| EBREAK.T | R | ++00 | +0 | | Ternary System | breakpoint trap (cause −9) |
-| ECALL.T | R | ++00 | ++ | | Ternary System | environment call (cause −6/−7/−8 by mode) |
+| EBREAK.T | R | ++00 | +0 | | Ternary System | breakpoint trap (cause −10) |
+| ECALL.T | R | ++00 | ++ | | Ternary System | environment call (cause −7/−8/−9 by mode) |
 | NOP.T | I | 0000 | 00 | | Pseudo | no-op (all-zero 32 trits = ADDI.T X0, X0, 0) |
 | MV.T | I | 0000 | 00 | rd1, rs1 | Pseudo | rd1 = rs1 (ADDI.T rd1, rs1, 0) |
 | SWAP.T | R | -000 | -+ | rd1, rd2 | Pseudo | exchange rd1 ↔ rd2 (MV2.T rd1, rd2, rd2, rd1) |
