@@ -1,7 +1,7 @@
-# PENDING - M extension: MUL.T / MULH.T / DIV.T / REM.T / MOD.T / MAC.T
-# Unlocks with plan A1.5 (M extension in the reference simulator).
+# M extension: MUL.T / MULH.T / DIV.T / REM.T / MOD.T / MAC.T (A1.5)
 # Written to rebel6-extensions.md "M - integer multiply / divide";
-# never executed - expected values hand-computed, re-verify on first run.
+# expected values re-verified independently (stdternary-cpp + wide
+# integer arithmetic) when the group landed in the simulator.
 # Pass: exit 0. Fail: exit a0 = index of failed check.
 	.text
 main:

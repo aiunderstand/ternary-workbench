@@ -46,12 +46,12 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
   simulator bug breaks; the runner reports them as `XFAIL` and skips
   them (they never count as failures). None currently exist.
 - `tests-pending/` holds drafts for groups the simulator cannot run
-  yet (M, Ztb, Ztl, trap causes) — see
+  yet (only the trap-cause test remains, keyed to A1.3) — see
   [tests-pending/README.md](tests-pending/README.md).
 
 ## Coverage
 
-All 39 tests pass against the R2R reference simulator as of this
+All 42 tests pass against the R2R reference simulator as of this
 commit.
 
 | Test | Instructions | Directed edge cases |
@@ -88,6 +88,9 @@ commit.
 | `x0_t` | X0 semantics | writes via `li.t`/ALU/`addi`/load all discarded; reads return 0 |
 | `pseudos_t` | `NOP.T`, `MV.T`, `SWAP.T`, `BGT.T`, `BLE.T` (pseudos) | 1:1 assembler expansions: `nop.t` changes no state; `mv.t` copies and preserves the source; `swap.t` proven an exchange (not a double move); `bgt.t`/`ble.t` taken **and** not-taken incl. the `==` boundary and a signed compare |
 | `comments_t` | comment markers (`#`, `;`, `$`, `//`) | all four strip to end-of-line from any position: trailing same-line comments after instructions and labels; `;` is a comment marker, not a separator — code hidden after a `;` (even inside a `#` comment) is inert |
+| `m_ext_t` | `MUL.T`, `MULH.T`, `DIV.T`, `REM.T`, `MOD.T`, `MAC.T` (M extension) | balanced wrap `MAX*2 = -1`; `MULH.T:MUL.T` composes the exact product (high word 1 over low word −1); truncating division all sign pairs; `MIN / -1 = MAX` without trap; div-by-zero q=0, `x rem 0 = x`, `x mod 0 = x`; `REM` sign = dividend, `MOD` sign = divisor; `MAC.T` single balanced wrap |
+| `ztb_t` | `CLZT.T`, `TCNT.T` (Ztb extension) | `clzt(0) = 24`, sign-blind (`clzt(-1) = clzt(1) = 23`), top-trit boundary (`3^23` → 0, `3^22` → 1); `tcnt` of 0/`MAX`/`MIN` (0/24/24) and hand-computed popcounts |
+| `ztl_t` | `TLUT.T`, `TLUTI.T` + unary gate pseudos `NTI.T`, `PTI.T`, `MTI.T`, `CYU.T`, `CYD.T` (Ztl extension) | each unary canonical table applied to a vector exercising all three inputs, high-lane `f(0)` propagation verified over all 24 lanes; raw `TLUTI.T` matches its pseudo; `TLUT.T` with the `CONS.T` and `KIMP.T` canonical tables over the 9-pair enumeration vector (a=9464, b=6056) hitting every table position |
 
 Scaffolding instructions `LI.T`, `BNE.T`, `JAL.T`, `ECALL.T` are
 exercised by every file in addition to their dedicated tests.
@@ -114,9 +117,9 @@ parser, the spec pseudo-instructions being unimplemented, and unknown
 mnemonics dying in a C++ abort (exit 134) — are fixed in the R2R
 parser: comments now conform to the spec (`comments_t` covers them),
 the pseudos expand 1:1 in the assembler (`pseudos_t` covers them),
-and unknown/unimplemented mnemonics (M/Ztb/Ztl, `ebreak.t`,
-`tret.t`) print `unsupported instruction '<name>' (<reason>)` and
-exit 2. Suite convention remains own-line `#` comments except where a
+and unknown/unimplemented mnemonics (`ebreak.t`, `tret.t` — the
+M/Ztb/Ztl groups are implemented as of A1.5/A1.6) print
+`unsupported instruction '<name>' (<reason>)` and exit 2. Suite convention remains own-line `#` comments except where a
 test deliberately exercises the other styles.
 
 Documented dialect behavior, kept by design:

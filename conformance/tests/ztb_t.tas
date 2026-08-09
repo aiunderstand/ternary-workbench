@@ -1,8 +1,7 @@
-# PENDING - Ztb extension: CLZT.T (leading zero trits) / TCNT.T
-# (non-zero trit count)
-# Unlocks with plan A1.6 (Ztb in the reference simulator).
+# Ztb extension: CLZT.T (leading zero trits) / TCNT.T
+# (non-zero trit count) (A1.6)
 # Written to rebel6-extensions.md "Ztb - trit manipulation";
-# never executed - re-verify on first run.
+# expected values re-verified independently when the group landed.
 # Pass: exit 0. Fail: exit a0 = index of failed check.
 	.text
 main:

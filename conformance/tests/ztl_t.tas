@@ -1,7 +1,6 @@
-# PENDING - Ztl extension: TLUT.T / TLUTI.T programmable tritwise gates
-# Unlocks with plan A1.6 (Ztl in the reference simulator).
+# Ztl extension: TLUT.T / TLUTI.T programmable tritwise gates (A1.6)
 # Written to rebel6-extensions.md "Ztl - ternary logic";
-# never executed - re-verify on first run.
+# expected values re-verified independently when the group landed.
 #
 # Input vector for unary gates: x = 8, trit lanes 0..2 = (-,0,+),
 # lanes 3..23 = 0. A unary gate therefore writes f(-),f(0),f(+) into
