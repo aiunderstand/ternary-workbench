@@ -1,0 +1,45 @@
+# Comment-handling conformance: the four spec comment markers
+# ('#', ';', '$', "//") each strip to end-of-line from any position
+# on a line (rebel6-isa.md, "Comments"). In particular ';' is a
+# comment marker, NOT a statement separator: code hidden after a ';'
+# - even inside another comment - must never execute. This file
+# deliberately uses trailing comments and ';', unlike the rest of
+# the suite.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: trailing same-line comments in all four styles
+	li.t a0, 1
+	li.t t0, 42	# trailing hash comment
+	li.t t1, 42	; trailing semicolon comment
+	bne.t t0, t1, fail
+	li.t t0, -7	$ trailing dollar comment
+	li.t t1, -7	// trailing slash-slash comment
+	bne.t t0, t1, fail
+	# check 2: a ';' inside a '#' comment is inert ; li.t a0, 77
+	li.t a0, 2
+	li.t t2, 2
+	bne.t a0, t2, fail
+	# check 3: a comment-only ';' line hides its statement
+	li.t a0, 3
+	; li.t a0, 78
+	li.t t2, 3
+	bne.t a0, t2, fail
+	# check 4: '$' and "//" comment-only lines hide their statements
+	li.t a0, 4
+	$ li.t a0, 79
+	// li.t a0, 80
+	li.t t2, 4
+	bne.t a0, t2, fail
+	# check 5: trailing comment directly after a branch target label
+	li.t a0, 5
+after_label:	# label with a trailing comment
+	li.t t2, 5
+	bne.t a0, t2, fail
+	# all checks passed
+	li.t a7, 93	# exit contract ; li.t a7, 0
+	li.t a0, 0	; status 0
+	ecall.t		// exit
+fail:
+	li.t a7, 93
+	ecall.t

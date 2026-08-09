@@ -51,7 +51,7 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
 
 ## Coverage
 
-All 37 tests pass against the R2R reference simulator as of this
+All 39 tests pass against the R2R reference simulator as of this
 commit.
 
 | Test | Instructions | Directed edge cases |
@@ -86,13 +86,14 @@ commit.
 | `ecall_exit_t` | `ECALL.T` (semihosting) | `write` (a7=64) returns tryte count in `a0`; `exit` (a7=93) reports `a0` as status |
 | `fence_wfi_t` | `FENCE.T`, `WFI.T` | execute as observable no-ops single-hart, state preserved |
 | `x0_t` | X0 semantics | writes via `li.t`/ALU/`addi`/load all discarded; reads return 0 |
+| `pseudos_t` | `NOP.T`, `MV.T`, `SWAP.T`, `BGT.T`, `BLE.T` (pseudos) | 1:1 assembler expansions: `nop.t` changes no state; `mv.t` copies and preserves the source; `swap.t` proven an exchange (not a double move); `bgt.t`/`ble.t` taken **and** not-taken incl. the `==` boundary and a signed compare |
+| `comments_t` | comment markers (`#`, `;`, `$`, `//`) | all four strip to end-of-line from any position: trailing same-line comments after instructions and labels; `;` is a comment marker, not a separator — code hidden after a `;` (even inside a `#` comment) is inert |
 
 Scaffolding instructions `LI.T`, `BNE.T`, `JAL.T`, `ECALL.T` are
 exercised by every file in addition to their dedicated tests.
 
 **Not yet covered** (beyond `tests-pending/`): `AIPC.T`, `EBREAK.T`,
-`TRET.T`, the spec's pseudo-instructions (blocked — see divergence 3
-below), negative assembler tests, and the Base Binary group.
+`TRET.T`, negative assembler tests, and the Base Binary group.
 
 ### Spec observation: `MAJV.T` all-distinct lane
 
@@ -103,43 +104,37 @@ majority-gate extension and keeps `MINV.T = −MAJV.T` consistent.
 `majv_t` check 4 asserts this reading; the spec should state it
 explicitly.
 
-## Dialect divergences (Workbench canonical syntax vs R2R parser)
+## Dialect notes (Workbench canonical syntax and the R2R parser)
 
-The suite is written in the dialect the R2R executor's parser actually
-accepts (modelled on `RiscvTests/Rebel6Tests/smoke.tas`). Divergences
-from the spec/Workbench canonical syntax found while building the
-suite, each verified by experiment:
+The suite is written in the dialect the R2R executor's parser accepts
+(modelled on `RiscvTests/Rebel6Tests/smoke.tas`). The divergences
+found while building the suite — `;` acting as a statement separator
+even inside comments, trailing same-line comments crashing the
+parser, the spec pseudo-instructions being unimplemented, and unknown
+mnemonics dying in a C++ abort (exit 134) — are fixed in the R2R
+parser: comments now conform to the spec (`comments_t` covers them),
+the pseudos expand 1:1 in the assembler (`pseudos_t` covers them),
+and unknown/unimplemented mnemonics (M/Ztb/Ztl, `ebreak.t`,
+`tret.t`) print `unsupported instruction '<name>' (<reason>)` and
+exit 2. Suite convention remains own-line `#` comments except where a
+test deliberately exercises the other styles.
 
-1. **`;` is a statement separator, not a comment character — even
-   inside comments.** The spec says `#`, `;`, `$`, `//` all strip to
-   end-of-line. In the R2R parser, text after `;` on a `#` comment
-   line is *parsed and executed as code* (verified: a
-   `# comment; li.t a0, 7` line changed the program's exit status
-   to 7). Never use `;` anywhere in a `.tas` file.
-2. **Trailing same-line comments crash the parser.** `li.t a0, 0 # c`
-   aborts the run (exit 134). Comments must sit on their own lines,
-   starting with `#`.
-3. **The spec's pseudo-instructions are not implemented.** `nop.t`,
-   `mv.t`, `swap.t`, `bgt.t` (and by extension `ble.t`) parse but
-   abort at execution with `Undefined instruction`. The suite spells
-   out the expansions instead (`add.t rd, rs, zero` for moves, swapped
-   `blt.t`/`bge.t` operands, `mv2.t a, b, b, a` for swap).
-4. **Load/store operand order is a flat list, base register first.**
-   R2R dialect: `sw.t base, src, offset` and `lw.t rd, base, offset`.
-   There is no RISC-V-style `off(base)` addressing form. (Base-first
-   for stores matches the spec's encoding-order operand column
-   `rs1, rs2, imm12` with `mem[rs1+imm12] = rs2`, but note the
-   *source* is the second operand — the reverse of RISC-V assembler
-   convention.)
-5. **Flat pre-linker addressing:** `li.t` accepts both data labels and
-   code labels as its imm24, and `jalr.t` through such an address
-   works. There are no `%`-modifier relocations in this dialect.
-6. **Unimplemented instructions abort rather than diagnose.** Any
-   unknown-to-the-executor mnemonic (all of M/Ztb/Ztl, plus the
-   pseudos above) terminates the process with a C++ abort (exit 134),
-   not a parse error — a failing conformance run may therefore show
-   exit 134 rather than a check index. `ebreak.t`/`tret.t` parse but
-   abort as unimplemented traps.
+Documented dialect behavior, kept by design:
+
+1. **Loads/stores accept dual syntax.** Every ternary load/store and
+   `jalr.t` accepts both the spec-canonical flat form
+   (`lw.t rd, rs1, imm12` / `sw.t rs1, rs2, imm12`, base register =
+   rs1, `mem[rs1+imm12] = rs2`) and the RISC-V-style `off(base)` form
+   the translator emits; the assembler normalizes both to one
+   internal form. Flat-form base-first matches the spec's
+   encoding-order operand column, but note the store *source* is the
+   second operand — the reverse of RISC-V assembler convention. The
+   suite uses the flat form.
+2. **Flat pre-linker addressing:** `li.t` accepts both data labels
+   and code labels as its imm24, and `jalr.t` through such an address
+   works. There are no `%`-modifier relocations in this dialect. This
+   is revisited in Phase B, when REBEL-ld introduces the I/D
+   address-space split.
 
 ## Shift tests: signed-shift design ratified
 

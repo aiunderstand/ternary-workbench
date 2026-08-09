@@ -1,0 +1,71 @@
+# Pseudo-instruction conformance: NOP.T, MV.T, SWAP.T, BGT.T, BLE.T
+# The assembler expands each spec pseudo 1:1 into a base instruction:
+#   nop.t -> addi.t x0, x0, 0
+#   mv.t rd, rs -> addi.t rd, rs, 0
+#   swap.t a, b -> mv2.t a, b, b, a
+#   bgt.t a, b, off -> blt.t b, a, off
+#   ble.t a, b, off -> bge.t b, a, off
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: nop.t executes and changes no architectural state
+	li.t a0, 1
+	li.t t0, 77
+	nop.t
+	li.t t1, 77
+	bne.t t0, t1, fail
+	# checks 2+3: mv.t copies and preserves the source
+	li.t a0, 2
+	li.t t0, -1234
+	mv.t t1, t0
+	bne.t t1, t0, fail
+	li.t a0, 3
+	li.t t2, -1234
+	bne.t t0, t2, fail
+	# checks 4+5: swap.t exchanges - would fail as a double move
+	li.t a0, 4
+	li.t t0, 111
+	li.t t1, 222
+	swap.t t0, t1
+	li.t t2, 222
+	bne.t t0, t2, fail
+	li.t a0, 5
+	li.t t2, 111
+	bne.t t1, t2, fail
+	# check 6: bgt.t taken when a > b
+	li.t a0, 6
+	li.t t0, 5
+	li.t t1, 3
+	bgt.t t0, t1, check7
+	jal.t zero, fail
+check7:
+	# check 7: bgt.t not taken when a < b, nor when a == b
+	li.t a0, 7
+	bgt.t t1, t0, fail
+	bgt.t t0, t0, fail
+	# check 8: bgt.t signed compare, 0 > -5 taken
+	li.t a0, 8
+	li.t t2, -5
+	bgt.t zero, t2, check9
+	jal.t zero, fail
+check9:
+	# check 9: ble.t taken when a < b
+	li.t a0, 9
+	ble.t t1, t0, check10
+	jal.t zero, fail
+check10:
+	# check 10: ble.t taken when a == b
+	li.t a0, 10
+	ble.t t0, t0, check11
+	jal.t zero, fail
+check11:
+	# check 11: ble.t not taken when a > b
+	li.t a0, 11
+	ble.t t0, t1, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
