@@ -144,7 +144,10 @@ Note that comparison must be canonical-form-aware regardless — `S = 3, E = 4` 
 | `+` | infinity | sign from `S`'s leading non-zero trit; `S` must be non-zero and canonical (recommend `S = ±1, E = 0`) |
 | `−` | NaN | quiet-only, single canonical encoding — see §4.3 |
 
-`C = +` with `S = 0` is **not** a valid encoding; consumers treat it as non-canonical input per §3.4.
+`C = +` with `S = 0` is **not** a valid encoding; consumers **read it as NaN**. This is a deliberate
+third consumer behaviour, distinct from §3.4's normalize-on-read (which applies to non-canonical
+*finite* encodings): a signless infinity has no meaningful normalization, and NaN is the value that
+says "this encoding carries no number". Both reference implementations do this.
 
 ### 4.1 Overflow and division by zero
 
@@ -152,10 +155,11 @@ Both are defined, non-trapping:
 
 - **Overflow.** A finite result whose magnitude exceeds the largest normal (`S = ±(3¹⁸−1)/2, E = +121`) becomes **infinity with the sign of the exact result**. Saturating to the largest finite value instead would silently corrupt magnitudes and break the monotonicity of comparison across the overflow boundary; infinity preserves the "too large" signal that ported IEEE-shaped code expects.
 - **Division by zero.** `x ÷ 0` with `x ≠ 0` yields **infinity carrying the dividend's sign** — the format has a single zero, so the divisor contributes no sign. `0 ÷ 0` yields NaN. This is what §3.1's guard idiom (`z = 1.0 / (x − y)`) already presumes: a defined result, never a trap.
+- **Infinity arithmetic.** Infinity is absorbing for `+`, `−`, `×` with finite operands (sign by the usual rules). `Inf ÷ 0` yields infinity with the dividend's sign; `finite ÷ Inf` yields zero. The indeterminate forms — `Inf ÷ Inf`, `Inf × 0`, and addition/subtraction that cancels infinities of the same sign — yield NaN. These mirror both reference implementations.
 
 ### 4.2 Rounding of non-terminating quotients
 
-`+`, `−` and `×` of representable operands have terminating expansions, so truncation is exactly round-to-nearest and tie-free (§1.1). **Division does not**: a quotient is a rational whose balanced-ternary expansion may not terminate, and exact half-ulp ties occur (`1 ÷ 2` sits exactly between two representables). The tie rule for division is **toward zero**: it needs no extra comparator (cheapest in hardware and softfloat), it is consistent with the format's truncation ethos, and it is deterministic. This is the only tie-breaking rule in the format, and it applies only to `÷`.
+`+`, `−` and `×` of representable operands have terminating expansions, so truncation is exactly round-to-nearest and tie-free (§1.1). **Division does not**: a quotient is a rational whose balanced-ternary expansion may not terminate, and exact half-ulp ties occur (`1 ÷ 2` sits exactly between two representables). The tie rule is **toward zero**: it needs no extra comparator (cheapest in hardware and softfloat), it is consistent with the format's truncation ethos, and it is deterministic. It never arises in `+`, `−`, `×`; it applies to `÷` **and to conversion from binary floating point** (§4.4) — a binary rational such as `m × 2^k` is generally non-terminating in ternary, so binary→ternary conversion hits exact half-ulp ties through the same rounding path and resolves them the same way.
 
 ### 4.3 NaN convention
 
@@ -220,7 +224,7 @@ The following must exist. The first two are the ones that catch real bugs.
 
 ## 7. Summary of decisions for the implementer
 
-**Fixed:** 18/1/5 field widths; tryte alignment; no sign field; no exponent bias; no signed zero; class trit for Inf/NaN; truncation as default rounding; **gradual underflow with exponent clamped at `E_min`**; canonicalization rule of §3.4; overflow → ±Inf and non-trapping division by zero (§4.1); toward-zero ties for `÷` only (§4.2); quiet-only canonical NaN, unordered comparison (§4.3); saturating `FCVT` with NaN → 0 (§4.4); `C = +, S = 0` rejected as non-canonical; normalize-on-read for the software library (§3.4).
+**Fixed:** 18/1/5 field widths; tryte alignment; no sign field; no exponent bias; no signed zero; class trit for Inf/NaN; truncation as default rounding; **gradual underflow with exponent clamped at `E_min`**; canonicalization rule of §3.4; overflow → ±Inf and non-trapping division by zero (§4.1); toward-zero ties for `÷` only (§4.2); quiet-only canonical NaN, unordered comparison (§4.3); saturating `FCVT` with NaN → 0 (§4.4); `C = +, S = 0` read as NaN; normalize-on-read for the software library (§3.4).
 
 **To decide during implementation, with evidence:** field order (§5.1, benchmark required).
 
