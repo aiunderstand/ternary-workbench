@@ -111,12 +111,42 @@ internal static class InstructionEncoder6
                 $"Mnemonic '{mnemonic}' expects {expansion.OperandCount} operand(s) but received {operands.Count} on line {lineNumber}.");
 
         var expanded = expansion.Template
-            .Select(slot => slot.StartsWith('$') ? operands[int.Parse(slot[1..])] : slot)
+            .Select(slot => ResolveTemplateSlot(slot, operands, lineNumber))
             .ToList();
 
         operands.Clear();
         operands.AddRange(expanded);
         mnemonic = expansion.Target;
+    }
+
+    /// <summary>
+    /// Resolves one pseudo-expansion template entry: <c>$n</c> copies source operand n, <c>$-n</c>
+    /// copies it negated (numeric operands flip sign; trit strings invert tritwise), anything else
+    /// is a literal operand.
+    /// </summary>
+    private static string ResolveTemplateSlot(string slot, IReadOnlyList<string> operands, int lineNumber)
+    {
+        if (!slot.StartsWith('$'))
+            return slot;
+
+        bool negate = slot.Length > 1 && slot[1] == '-';
+        var operand = operands[int.Parse(slot[(negate ? 2 : 1)..])];
+        return negate ? NegateOperand(operand, lineNumber) : operand;
+    }
+
+    /// <summary>Negates a numeric or trit-string operand during pseudo-expansion (errata E-4).</summary>
+    private static string NegateOperand(string operand, int lineNumber)
+    {
+        var token = operand.Trim();
+
+        if (int.TryParse(token, out var value))
+            return (-value).ToString();
+
+        if (token.Length > 0 && token.All(ch => ch is '+' or '-' or '0'))
+            return new string([.. token.Select(ch => ch == '+' ? '-' : ch == '-' ? '+' : '0')]);
+
+        throw new InvalidOperationException(
+            $"Cannot negate operand '{operand}' during pseudo-instruction expansion on line {lineNumber}. Expected a number or a trit string.");
     }
 
     // -------------------------------------------------------------------------

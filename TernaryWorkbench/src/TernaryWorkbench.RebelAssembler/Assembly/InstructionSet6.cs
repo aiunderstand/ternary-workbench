@@ -164,15 +164,21 @@ internal static class InstructionSet6
             { "ADD.T",  new InstructionPattern("ADD.T",  "--00", [Rd1, Rs1, Rs2], Func4("00--")) },
             { "SUB.T",  new InstructionPattern("SUB.T",  "--00", [Rd1, Rs1, Rs2], Func4("00-0")) },
 
-            // Register-amount shifts: the shift amount is rs2, the fill trit is the least
-            // significant trit of the otherwise unused rd2 slot. All three fills share one func,
-            // so func alone does not identify the instruction — the fill trit must be read too.
-            { "SLN.T",  new InstructionPattern("SLN.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "00000-"))) },
-            { "SLZ.T",  new InstructionPattern("SLZ.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "000000"))) },
-            { "SLP.T",  new InstructionPattern("SLP.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "00000+"))) },
-            { "SRN.T",  new InstructionPattern("SRN.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, "00000-"))) },
-            { "SRZ.T",  new InstructionPattern("SRZ.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, "000000"))) },
-            { "SRP.T",  new InstructionPattern("SRP.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, "00000+"))) },
+            // Register-amount shifts (signed amount — errata E-4): the direction comes from the
+            // sign of the amount, read from the low 4 trits of rs2 (balanced, ±40). k > 0 shifts
+            // toward the MST (the old left shift), k < 0 toward the LST, |k| >= 24 gives all-fill.
+            // The fill trit is the least significant trit of the otherwise unused rd2 slot. All
+            // three fills share one func, so func alone does not identify the instruction — the
+            // fill trit must be read too. The old SL{N,Z,P}.T names live on as pseudos (see
+            // PseudoExpansions); the register right shifts SR{N,Z,P}.T are retired outright.
+            { "SHN.T",  new InstructionPattern("SHN.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "00000-"))) },
+            { "SHZ.T",  new InstructionPattern("SHZ.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "000000"))) },
+            { "SHP.T",  new InstructionPattern("SHP.T",  "--00", [Rd1, Rs1, Rs2], Merge(Func4("00-+"), Fixed(Rd2, "00000+"))) },
+
+            // Register-amount rotate (errata E-4) in the func slot freed by the retired SR* family:
+            // amount = signed low 4 trits of rs2, applied mod 24 (+ = toward MST). Cyclic, so it
+            // has no fill — the rd2 slot is required zero, the same selector rule as ROT.T.
+            { "ROTR.T", new InstructionPattern("ROTR.T", "--00", [Rd1, Rs1, Rs2], Merge(Func4("000-"), Fixed(Rd2, DefaultField))) },
 
             { "SLT.T",  new InstructionPattern("SLT.T",  "--00", [Rd1, Rs1, Rs2], Func4("0000")) },
             { "OR.T",   new InstructionPattern("OR.T",   "--00", [Rd1, Rs1, Rs2], Func4("000+")) },
@@ -199,18 +205,18 @@ internal static class InstructionSet6
             // ----------------------------------------------------------------
             { "ADDI.T",  new InstructionPattern("ADDI.T",  "0000", [Rd1, Rs1, Imm], Func4("0000")) },
 
-            // Immediate shifts read imm12 as its two natural 6-trit halves: the rs2 slot
-            // (imm[11:6]) carries the fill selector, the rd2 slot (imm[5:0]) carries shamt.
-            // ROT.T is cyclic, so it has no fill and requires the selector half to be zero.
-            // (ROT.T was named SC.T before the A extension reclaimed that mnemonic for
-            // store-conditional; see docs/rebel6-isa.md errata E-3. No alias here: with the
-            // A extension in the table, SC.T unambiguously means store-conditional.)
-            { "SLIN.T",  new InstructionPattern("SLIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000-"))) },
-            { "SLIZ.T",  new InstructionPattern("SLIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "000000"))) },
-            { "SLIP.T",  new InstructionPattern("SLIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000+"))) },
-            { "SRIN.T",  new InstructionPattern("SRIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "00000-"))) },
-            { "SRIZ.T",  new InstructionPattern("SRIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "000000"))) },
-            { "SRIP.T",  new InstructionPattern("SRIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "00000+"))) },
+            // Immediate shifts (signed amount — errata E-4) read imm12 as its two natural 6-trit
+            // halves: the rs2 slot (imm[11:6]) carries the fill selector, the rd2 slot (imm[5:0])
+            // carries the signed shamt (direction = sign; k > 0 toward MST, k < 0 toward LST).
+            // The old SLI*/SRI* mnemonics are pseudos over SHI<f>.T (see PseudoExpansions); the
+            // I-type func -0 slot the SRI* family occupied is reserved.
+            // ROT.T is cyclic and signed both ways (mod 24), so it has no fill and requires the
+            // selector half to be zero. (ROT.T was named SC.T before the A extension reclaimed
+            // that mnemonic for store-conditional; see docs/rebel6-isa.md errata E-3. No alias
+            // here: with the A extension in the table, SC.T unambiguously means store-conditional.)
+            { "SHIN.T",  new InstructionPattern("SHIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000-"))) },
+            { "SHIZ.T",  new InstructionPattern("SHIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "000000"))) },
+            { "SHIP.T",  new InstructionPattern("SHIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000+"))) },
             { "ROT.T",   new InstructionPattern("ROT.T",   "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-+"), Fixed(Rs2, DefaultField))) },
 
             { "SLTI.T",  new InstructionPattern("SLTI.T",  "0000", [Rd1, Rs1, Imm], Func4("000-")) },
@@ -486,6 +492,22 @@ internal static class InstructionSet6
 
             // REBEL-2 V2.2's cycle-up gate; canonical REBEL-6 name is CYU.T (Ztl).
             { "CYCLEUP.T", new PseudoExpansion("CYU.T", 2, ["$0", "$1"]) },
+
+            // Signed shift amounts (errata E-4): the old direction-split shift mnemonics live on
+            // as pseudos over the signed-amount family. The left forms copy their operands 1:1;
+            // the immediate right forms negate the amount ($-2), which the balanced encoding
+            // expresses for free. The register right shifts SR{N,Z,P}.T are retired outright —
+            // an assembler cannot negate a runtime value (materialize a negative amount with
+            // STI.T and use SH<f>.T).
+            { "SLN.T",  new PseudoExpansion("SHN.T",  3, ["$0", "$1", "$2"]) },
+            { "SLZ.T",  new PseudoExpansion("SHZ.T",  3, ["$0", "$1", "$2"]) },
+            { "SLP.T",  new PseudoExpansion("SHP.T",  3, ["$0", "$1", "$2"]) },
+            { "SLIN.T", new PseudoExpansion("SHIN.T", 3, ["$0", "$1", "$2"]) },
+            { "SLIZ.T", new PseudoExpansion("SHIZ.T", 3, ["$0", "$1", "$2"]) },
+            { "SLIP.T", new PseudoExpansion("SHIP.T", 3, ["$0", "$1", "$2"]) },
+            { "SRIN.T", new PseudoExpansion("SHIN.T", 3, ["$0", "$1", "$-2"]) },
+            { "SRIZ.T", new PseudoExpansion("SHIZ.T", 3, ["$0", "$1", "$-2"]) },
+            { "SRIP.T", new PseudoExpansion("SHIP.T", 3, ["$0", "$1", "$-2"]) },
         };
 
     // -------------------------------------------------------------------------

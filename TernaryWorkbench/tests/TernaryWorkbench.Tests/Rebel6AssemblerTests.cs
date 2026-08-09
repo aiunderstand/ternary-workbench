@@ -163,12 +163,10 @@ public class Rebel6AssemblerTests
     // Ternary R-type (opcode --00): func distinguishes operations
     [InlineData("ADD.T X1, X2, X3")]
     [InlineData("SUB.T X1, X2, X3")]
-    [InlineData("SLN.T X1, X2, X3")]
-    [InlineData("SLZ.T X1, X2, X3")]
-    [InlineData("SLP.T X1, X2, X3")]
-    [InlineData("SRN.T X1, X2, X3")]
-    [InlineData("SRZ.T X1, X2, X3")]
-    [InlineData("SRP.T X1, X2, X3")]
+    [InlineData("SHN.T X1, X2, X3")]
+    [InlineData("SHZ.T X1, X2, X3")]
+    [InlineData("SHP.T X1, X2, X3")]
+    [InlineData("ROTR.T X1, X2, X3")]
     [InlineData("SLT.T X1, X2, X3")]
     [InlineData("OR.T X1, X2, X3")]
     [InlineData("XOR.T X1, X2, X3")]
@@ -189,13 +187,14 @@ public class Rebel6AssemblerTests
     // Ternary I-type (opcode 0000, imm12 split around rd1)
     [InlineData("ADDI.T X1, X2, 3")]
     [InlineData("ADDI.T X1, X2, -265720")]
-    [InlineData("SLIN.T X1, X2, 3")]
-    [InlineData("SLIZ.T X1, X2, 3")]
-    [InlineData("SLIP.T X1, X2, 3")]
-    [InlineData("SRIN.T X1, X2, 3")]
-    [InlineData("SRIZ.T X1, X2, 3")]
-    [InlineData("SRIP.T X1, X2, 3")]
+    [InlineData("SHIN.T X1, X2, 3")]
+    [InlineData("SHIZ.T X1, X2, 3")]
+    [InlineData("SHIP.T X1, X2, 3")]
+    [InlineData("SHIN.T X1, X2, -3")]
+    [InlineData("SHIZ.T X1, X2, -3")]
+    [InlineData("SHIP.T X1, X2, -3")]
     [InlineData("ROT.T X1, X2, 3")]
+    [InlineData("ROT.T X1, X2, -3")]
     [InlineData("SLTI.T X1, X2, 3")]
     [InlineData("ORI.T X1, X2, 3")]
     [InlineData("XORI.T X1, X2, 3")]
@@ -462,7 +461,7 @@ public class Rebel6AssemblerTests
     [Fact]
     public void RType_AllDifferentFuncs_ProduceDifferentEncodings()
     {
-        var ops = new[] { "ADD.T", "SUB.T", "SLZ.T", "SRZ.T", "SLT.T", "OR.T", "XOR.T", "AND.T" };
+        var ops = new[] { "ADD.T", "SUB.T", "SHZ.T", "ROTR.T", "SLT.T", "OR.T", "XOR.T", "AND.T" };
         var codes = ops.Select(op => Asm.Translate($"{op} X1, X2, X3")).ToList();
         codes.Should().OnlyHaveUniqueItems("R-type ternary ops share opcode but have distinct func values");
     }
@@ -479,12 +478,12 @@ public class Rebel6AssemblerTests
     [Theory]
     // The three fills share one func and differ only in the fill selector: the rs2 slot for
     // immediate shifts, the rd2 slot for register shifts. Func alone does not identify a shift.
-    [InlineData("SLIN.T X1, X2, 5", 6, 12, "00000-")]
-    [InlineData("SLIZ.T X1, X2, 5", 6, 12, "000000")]
-    [InlineData("SLIP.T X1, X2, 5", 6, 12, "00000+")]
-    [InlineData("SLN.T X1, X2, X3", 18, 24, "00000-")]
-    [InlineData("SLZ.T X1, X2, X3", 18, 24, "000000")]
-    [InlineData("SLP.T X1, X2, X3", 18, 24, "00000+")]
+    [InlineData("SHIN.T X1, X2, 5", 6, 12, "00000-")]
+    [InlineData("SHIZ.T X1, X2, 5", 6, 12, "000000")]
+    [InlineData("SHIP.T X1, X2, 5", 6, 12, "00000+")]
+    [InlineData("SHN.T X1, X2, X3", 18, 24, "00000-")]
+    [InlineData("SHZ.T X1, X2, X3", 18, 24, "000000")]
+    [InlineData("SHP.T X1, X2, X3", 18, 24, "00000+")]
     public void ShiftFillVariants_DifferOnlyInTheFillTrit(string assembly, int from, int to, string expectedFill)
     {
         var mc = Asm.Translate(assembly);
@@ -495,8 +494,8 @@ public class Rebel6AssemblerTests
     [Fact]
     public void ShiftFillVariants_ShareOneFunc()
     {
-        // All three left-immediate fills carry func 00--; only the rs2 slot differs.
-        var codes = new[] { "SLIN.T X1, X2, 5", "SLIZ.T X1, X2, 5", "SLIP.T X1, X2, 5" }
+        // All three immediate fills carry func 00--; only the rs2 slot differs.
+        var codes = new[] { "SHIN.T X1, X2, 5", "SHIZ.T X1, X2, 5", "SHIP.T X1, X2, 5" }
             .Select(Asm.Translate).ToList();
 
         codes.Select(c => c[24..28]).Distinct().Should().ContainSingle()
@@ -507,8 +506,27 @@ public class Rebel6AssemblerTests
     [Fact]
     public void TernaryShiftAmount_IsRangeLimitedToFourTrits()
     {
-        var tooLarge = () => Asm.Translate("SLIZ.T X1, X2, 41");
+        var tooLarge = () => Asm.Translate("SHIZ.T X1, X2, 41");
         tooLarge.Should().Throw<InvalidOperationException>().WithMessage("*41*");
+
+        var tooNegative = () => Asm.Translate("SHIZ.T X1, X2, -41");
+        tooNegative.Should().Throw<InvalidOperationException>().WithMessage("*-41*");
+    }
+
+    [Fact]
+    public void SignedShiftAmount_DirectionComesFromTheSign()
+    {
+        // Errata E-4: one shift family, direction = sign of the balanced amount. The negative
+        // amount encodes as the tritwise-negated shamt field; everything else is identical.
+        var left  = Asm.Translate("SHIZ.T X1, X2, 5");
+        var right = Asm.Translate("SHIZ.T X1, X2, -5");
+
+        left[18..24].Should().Be("000+--",  because: "+5 in 6-trit balanced ternary");
+        right[18..24].Should().Be("000-++", because: "-5 is its tritwise negation");
+        left[24..28].Should().Be(right[24..28], because: "direction costs no func — it rides the amount's sign");
+
+        Asm.Disassemble(right).Should().Be("SHIZ.T X1, X2, -5",
+            because: "negative amounts are first-class and round-trip through disassembly");
     }
 
     [Fact]
@@ -787,7 +805,15 @@ public class Rebel6AssemblerTests
     [InlineData("MIN.T X1, X2, X3",          "0000+-0000+000000+000000000--000")] // -000 func 000-
     [InlineData("MAX.T X1, X2, X3",          "0000+-0000+000000+000000000+-000")] // -000 func 000+
     [InlineData("MV2.T X1, X2, X3, X4",      "0000+00000++00000+0000+-00-+-000")] // rs1=X3 rs2=X4 rd1=X1 rd2=X2
-    [InlineData("ROT.T X1, X2, 3",           "0000+-00000000000+0000+000-+0000")] // cyclic shift, selector zero
+    [InlineData("ROT.T X1, X2, 3",           "0000+-00000000000+0000+000-+0000")] // cyclic shift, signed shamt, selector zero
+    [InlineData("ROT.T X1, X2, -3",          "0000+-00000000000+0000-000-+0000")] // negative amount = tritwise-negated shamt
+    // Signed shift family (errata E-4): direction from the amount's sign, one func per form
+    [InlineData("SHZ.T X1, X2, X3",          "0000+-0000+000000+00000000-+--00")] // register amount, fill 0 in rd2 slot
+    [InlineData("SHN.T X1, X2, X3",          "0000+-0000+000000+00000-00-+--00")] // register amount, fill − in rd2 slot
+    [InlineData("SHIZ.T X1, X2, 3",          "0000+-00000000000+0000+000--0000")] // immediate amount, fill 0 in rs2 slot
+    [InlineData("SHIZ.T X1, X2, -3",         "0000+-00000000000+0000-000--0000")] // negative = toward LST, same func
+    [InlineData("SHIN.T X1, X2, 3",          "0000+-00000-00000+0000+000--0000")] // fill − in rs2 slot
+    [InlineData("ROTR.T X1, X2, X3",         "0000+-0000+000000+000000000---00")] // register-amount rotate, freed 0- func, rd2 zero
     // System group: all four operand slots zero, funcs match R2v2's ++ group
     [InlineData("ECALL.T",                   "00000000000000000000000000++++00")]
     [InlineData("TRET.T",                    "00000000000000000000000000+-++00")]
@@ -820,10 +846,55 @@ public class Rebel6AssemblerTests
     [InlineData("SWAP.T X1, X2",     "MV2.T X1, X2, X2, X1")]
     [InlineData("CYCLEUP.T X1, X2",  "CYU.T X1, X2")]
     [InlineData("TDOT.T X1, X2, X3", "TMAC.T X1, X2, X3, X0")]
+    // E-4: the old direction-split shift names are pseudos over the signed-amount family;
+    // the immediate right shifts negate the amount, which the balanced shamt encodes for free.
+    [InlineData("SLN.T X1, X2, X3",  "SHN.T X1, X2, X3")]
+    [InlineData("SLZ.T X1, X2, X3",  "SHZ.T X1, X2, X3")]
+    [InlineData("SLP.T X1, X2, X3",  "SHP.T X1, X2, X3")]
+    [InlineData("SLIN.T X1, X2, 5",  "SHIN.T X1, X2, 5")]
+    [InlineData("SLIZ.T X1, X2, 5",  "SHIZ.T X1, X2, 5")]
+    [InlineData("SLIP.T X1, X2, 5",  "SHIP.T X1, X2, 5")]
+    [InlineData("SRIN.T X1, X2, 5",  "SHIN.T X1, X2, -5")]
+    [InlineData("SRIZ.T X1, X2, 5",  "SHIZ.T X1, X2, -5")]
+    [InlineData("SRIP.T X1, X2, 5",  "SHIP.T X1, X2, -5")]
+    [InlineData("SRIZ.T X1, X2, -7", "SHIZ.T X1, X2, 7")]
     public void SpecUpgrade_PseudoForms_EncodeAsTheirExpansion(string pseudo, string expansion)
     {
         Asm.Translate(pseudo).Should().Be(Asm.Translate(expansion),
             because: $"'{pseudo}' must encode exactly as '{expansion}'");
+    }
+
+    [Fact]
+    public void OldShiftNames_DisassembleAsTheSignedCanonicalForms()
+    {
+        // The pseudo mnemonics have no encoding of their own; the signed family is canonical.
+        Asm.Disassemble(Asm.Translate("SLIZ.T X1, X2, 3")).Should().Be("SHIZ.T X1, X2, 3");
+        Asm.Disassemble(Asm.Translate("SRIZ.T X1, X2, 3")).Should().Be("SHIZ.T X1, X2, -3");
+        Asm.Disassemble(Asm.Translate("SLN.T X1, X2, X3")).Should().Be("SHN.T X1, X2, X3");
+    }
+
+    [Fact]
+    public void RetiredRegisterRightShifts_AreUnknownMnemonics()
+    {
+        // E-4 Option A: SR{N,Z,P}.T register forms are retired outright — the assembler cannot
+        // negate a runtime amount. Materialize a negative amount (STI.T) and use SH<f>.T.
+        foreach (var retired in new[] { "SRN.T", "SRZ.T", "SRP.T" })
+        {
+            var act = () => Asm.Translate($"{retired} X1, X2, X3");
+            act.Should().Throw<InvalidOperationException>().WithMessage($"*{retired}*",
+                because: $"'{retired}' is retired by errata E-4 and must not silently assemble");
+        }
+    }
+
+    [Fact]
+    public void RotrT_TakesTheFreedSrFuncSlot_AndPinsRd2Zero()
+    {
+        var mc = Asm.Translate("ROTR.T X1, X2, X3");
+        mc[24..28].Should().Be("000-", because: "ROTR.T reuses the func slot freed by the retired SR* family");
+        mc[28..32].Should().Be("--00", because: "ROTR.T is an R-type base-ternary instruction");
+        mc[18..24].Should().Be("000000", because: "rotates have no fill — the rd2 selector slot is required zero");
+
+        Asm.Disassemble(mc).Should().Be("ROTR.T X1, X2, X3");
     }
 
     [Fact]
@@ -962,8 +1033,8 @@ public class Rebel6AssemblerTests
                 p.Opcode[^1].Should().NotBe('0', because: "2-trit (G/Y) opcodes end in a non-zero trit");
         }
 
-        patterns.Count.Should().Be(127,
-            because: "55 base ternary + 27 binary + 37 extension + 8 pseudo patterns (NOP, MV, TDOT, NTI, PTI, MTI, CYU, CYD)");
+        patterns.Count.Should().Be(122,
+            because: "50 base ternary + 27 binary + 37 extension + 8 pseudo patterns (NOP, MV, TDOT, NTI, PTI, MTI, CYU, CYD)");
     }
 
     // =========================================================================

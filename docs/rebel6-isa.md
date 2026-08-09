@@ -21,7 +21,7 @@ binary (RV32I-compatible) instructions have no suffix. PC increments by 1 per in
 |----------|---------|------------|
 | Radix | Balanced ternary | **Balanced ternary** |
 | Instruction width | 10 trits | **32 trits** |
-| Base instruction count | 23 + 3 pseudo (9 opcode groups) | **55 ternary + 27 binary + 5 pseudo = 87** |
+| Base instruction count | 23 + 3 pseudo (9 opcode groups) | **50 ternary + 27 binary + 14 pseudo = 91** |
 | Register count | 9 (X-4 … X4) | **729 (X-364 … X364; X0 = zero)** |
 | Register width | 2 trits | **24 trits** |
 | Operand count | 2–4 | **2–4** |
@@ -340,9 +340,9 @@ alignment arithmetic is the price of clearing RV32I's range.
 Where alignment cannot be proven, a word load expands to tryte loads recombined by **`ADD.T`**:
 
 ```
-LT.T  t0, rs1, 0        ; SLI.T t1, t1, 6         ; ADD.T t0, t0, t1
-LT.T  t1, rs1, 1        ; SLI.T t2, t2, 12        ; ADD.T t0, t0, t2
-LT.T  t2, rs1, 2        ; SLI.T t3, t3, 18        ; ADD.T t0, t0, t3
+LT.T  t0, rs1, 0        ; SHIZ.T t1, t1, 6        ; ADD.T t0, t0, t1
+LT.T  t1, rs1, 1        ; SHIZ.T t2, t2, 12       ; ADD.T t0, t0, t2
+LT.T  t2, rs1, 2        ; SHIZ.T t3, t3, 18       ; ADD.T t0, t0, t3
 LT.T  t3, rs1, 3
 ```
 
@@ -447,25 +447,52 @@ Extensions may additionally use non-`00` upper func trits — see
 `--` *reserved*.
 
 **Immediates:** `imm12` is a 12-trit immediate (±265,720); `imm24` is 24 trits (±141,214,768,240).
-`shamt` is a shift amount, **4 trits** (±40) in the rd2 slot — wide enough for RV32I's 5-bit field
-(0…31) and for any shift of a 24-trit register.
+`shamt` is a **signed** shift amount, **4 trits** (±40) in the rd2 slot — wide enough for RV32I's
+5-bit field (0…31) and for any shift of a 24-trit register in either direction.
 
-**Shift fill.** A shift vacates trits, and the value shifted in is selected by a single **fill
-trit**: `−`, `0` or `+`. One trit expresses the three-valued choice exactly — a binary machine would
-need two bits and waste an encoding — and it costs no func slot, because the fill lives in a field
-the shift instructions do not otherwise use:
+**Shifts: direction from the sign, fill from one trit.** A shift amount is a balanced-ternary
+value, and a balanced value carries its direction in its own sign — so REBEL-6 has **one shift
+family with a signed amount** rather than separate left and right instructions
+([Errata E-4](#errata)):
+
+- `k > 0` — shift **toward the MST** (the conventional left shift) by `k`;
+- `k < 0` — shift **toward the LST** by `|k|`;
+- `k = 0` — identity;
+- `|k| ≥ 24` — the result is all-fill.
+
+For the register forms the amount is read from the **low 4 trits of rs2** (balanced, ±40) —
+mirroring RV32I's 5-bit masking — so the sign inspection is a 4-trit scan in hardware, not a
+24-trit priority scan, and an out-of-range register amount is well defined. The signed amount is
+the exponent: `x·3^k` is `SHIZ.T x, k` and exact division `x/3^k` is `SHIZ.T x, −k`, and
+dynamic-direction shifts (normalization loops, `CLZT.T` feeding a shift) are single instructions
+where a binary ISA needs a branch or a negate-and-select.
+
+A shift vacates trits, and the value shifted in is selected by a single **fill trit**: `−`, `0` or
+`+`. One trit expresses the three-valued choice exactly — a binary machine would need two bits and
+waste an encoding — and it costs no func slot, because the fill lives in a field the shift
+instructions do not otherwise use:
 
 | Shift form | Shift amount | Fill trit |
 |------------|--------------|-----------|
-| immediate (`SLI*.T`, `SRI*.T`) | rd2 slot = `imm[5:0]` | rs2 slot = `imm[11:6]` |
-| register (`SL*.T`, `SR*.T`) | rs2 (register) | rd2 slot (otherwise unused) |
+| immediate (`SHI<f>.T`) | rd2 slot = `imm[5:0]` (signed) | rs2 slot = `imm[11:6]` |
+| register (`SH<f>.T`) | low 4 trits of rs2 (signed) | rd2 slot (otherwise unused) |
 
-The mnemonic suffix names the fill: **N** = negative (`−`), **Z** = zero (`0`), **P** = positive
-(`+`). Because the fill is a datapath signal rather than a decode decision, it wires straight to the
-shifter's fill input — cheaper than synthesising the constant from separate func values. The
-consequence for decoders: **func alone does not identify a shift**; the fill trit must be read too.
-`ROT.T` is a cyclic shift, so it has no fill and requires the selector field to be zero (`ROT.T` was
-named `SC.T` before the A extension reclaimed that mnemonic — see [Errata E-3](#errata)).
+The mnemonic suffix `<f>` names the fill: **N** = negative (`−`), **Z** = zero (`0`), **P** =
+positive (`+`). Because the fill is a datapath signal rather than a decode decision, it wires
+straight to the shifter's fill input — cheaper than synthesising the constant from separate func
+values — and under the signed rule direction is the same kind of signal, arriving as the amount
+field's sign rather than as a func compare. The consequence for decoders: **func alone does not
+identify a shift**; the fill trit must be read too.
+
+`ROT.T` (immediate) and `ROTR.T` (register amount) are cyclic, taking the same signed amounts
+normalized mod 24, so they have no fill and require the selector field to be zero (`ROT.T` was
+named `SC.T` before the A extension reclaimed that mnemonic — see [Errata E-3](#errata);
+`ROTR.T` occupies the R-type func slot freed by E-4). The pre-E-4 direction-split names survive as
+pseudo-instructions where expressible: `SL<f>.T` and `SLI<f>.T` map 1:1 onto `SH<f>.T`/`SHI<f>.T`,
+`SRI<f>.T` maps onto `SHI<f>.T` with the amount negated, and the register right shifts `SR<f>.T`
+are **retired** (a runtime amount cannot be negated at assembly time — materialize a negative
+amount with `STI.T` and use `SH<f>.T`). The I-type func `-0` slot the `SRI*` family occupied is
+*reserved*.
 
 **Ternary logic operations** are the balanced-ternary extensions of the binary operations, chosen so
 that they agree *exactly* with RV32I's `or`/`and`/`xor` on the binary subset under REBEL-6's own
@@ -514,12 +541,10 @@ entry, cause codes, privilege banks — are specified in the
 |----------|--------|--------|------|----------|----------|-------------|
 | ADD.T | R | --00 | -- | rd1, rs1, rs2 | Ternary ALU | rd1 = rs1 + rs2 |
 | SUB.T | R | --00 | -0 | rd1, rs1, rs2 | Ternary ALU | rd1 = rs1 − rs2 |
-| SLN.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill − |
-| SLZ.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill 0 |
-| SLP.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 << rs2, fill + |
-| SRN.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill − |
-| SRZ.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill 0 |
-| SRP.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 >> rs2, fill + |
+| SHN.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 shifted by signed low 4 trits of rs2 (+ = toward MST), fill − |
+| SHZ.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 shifted by signed low 4 trits of rs2 (+ = toward MST), fill 0 |
+| SHP.T | R | --00 | -+ | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 shifted by signed low 4 trits of rs2 (+ = toward MST), fill + |
+| ROTR.T | R | --00 | 0- | rd1, rs1, rs2 | Ternary Shift | rd1 = rs1 rotated by signed low 4 trits of rs2, mod 24 (cyclic, no fill; + = toward MST) |
 | SLT.T | R | --00 | 00 | rd1, rs1, rs2 | Ternary ALU | rd1 = (rs1 < rs2) ? +1 : 0 |
 | OR.T | R | --00 | 0+ | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise max(rs1, rs2) |
 | XOR.T | R | --00 | +- | rd1, rs1, rs2 | Ternary ALU | rd1 = tritwise −(rs1 × rs2) |
@@ -530,13 +555,10 @@ entry, cause codes, privilege banks — are specified in the
 | MIN.T | R | -000 | 0- | rd1, rs1, rs2 | Ternary ALU | rd1 = min(rs1, rs2) (wordwise) |
 | MAX.T | R | -000 | 0+ | rd1, rs1, rs2 | Ternary ALU | rd1 = max(rs1, rs2) (wordwise) |
 | ADDI.T | I | 0000 | 00 | rd1, rs1, imm12 | Ternary ALU | rd1 = rs1 + imm |
-| SLIN.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill − |
-| SLIZ.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill 0 |
-| SLIP.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 << shamt, fill + |
-| SRIN.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill − |
-| SRIZ.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill 0 |
-| SRIP.T | I | 0000 | -0 | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 >> shamt, fill + |
-| ROT.T | I | 0000 | -+ | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 rotated by shamt mod 24 (cyclic, no fill; + = toward MST) |
+| SHIN.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 shifted by signed shamt (+ = toward MST), fill − |
+| SHIZ.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 shifted by signed shamt (+ = toward MST), fill 0 |
+| SHIP.T | I | 0000 | -- | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 shifted by signed shamt (+ = toward MST), fill + |
+| ROT.T | I | 0000 | -+ | rd1, rs1, shamt | Ternary Shift | rd1 = rs1 rotated by signed shamt, mod 24 (cyclic, no fill; + = toward MST) |
 | SLTI.T | I | 0000 | 0- | rd1, rs1, imm12 | Ternary ALU | rd1 = (rs1 < imm12) ? +1 : 0 |
 | ORI.T | I | 0000 | 0+ | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise max(rs1, imm12) |
 | XORI.T | I | 0000 | +- | rd1, rs1, imm12 | Ternary ALU | rd1 = tritwise −(rs1 × imm12) |
@@ -564,6 +586,15 @@ entry, cause codes, privilege banks — are specified in the
 | ECALL.T | R | ++00 | ++ | | Ternary System | environment call (cause −7/−8/−9 by mode) |
 | NOP.T | I | 0000 | 00 | | Pseudo | no-op (all-zero 32 trits = ADDI.T X0, X0, 0) |
 | MV.T | I | 0000 | 00 | rd1, rs1 | Pseudo | rd1 = rs1 (ADDI.T rd1, rs1, 0) |
+| SLN.T | R | --00 | -+ | rd1, rs1, rs2 | Pseudo | shift toward MST, fill − (SHN.T rd1, rs1, rs2) — [E-4](#errata) |
+| SLZ.T | R | --00 | -+ | rd1, rs1, rs2 | Pseudo | shift toward MST, fill 0 (SHZ.T rd1, rs1, rs2) — [E-4](#errata) |
+| SLP.T | R | --00 | -+ | rd1, rs1, rs2 | Pseudo | shift toward MST, fill + (SHP.T rd1, rs1, rs2) — [E-4](#errata) |
+| SLIN.T | I | 0000 | -- | rd1, rs1, shamt | Pseudo | shift toward MST, fill − (SHIN.T rd1, rs1, shamt) — [E-4](#errata) |
+| SLIZ.T | I | 0000 | -- | rd1, rs1, shamt | Pseudo | shift toward MST, fill 0 (SHIZ.T rd1, rs1, shamt) — [E-4](#errata) |
+| SLIP.T | I | 0000 | -- | rd1, rs1, shamt | Pseudo | shift toward MST, fill + (SHIP.T rd1, rs1, shamt) — [E-4](#errata) |
+| SRIN.T | I | 0000 | -- | rd1, rs1, shamt | Pseudo | shift toward LST, fill − (SHIN.T rd1, rs1, −shamt) — [E-4](#errata) |
+| SRIZ.T | I | 0000 | -- | rd1, rs1, shamt | Pseudo | shift toward LST, fill 0 (SHIZ.T rd1, rs1, −shamt) — [E-4](#errata) |
+| SRIP.T | I | 0000 | -- | rd1, rs1, shamt | Pseudo | shift toward LST, fill + (SHIP.T rd1, rs1, −shamt) — [E-4](#errata) |
 | SWAP.T | R | -000 | -+ | rd1, rd2 | Pseudo | exchange rd1 ↔ rd2 (MV2.T rd1, rd2, rd2, rd1) |
 | BGT.T | B | 0-00 | 00 | rs1, rs2, disp | Pseudo | branch if rs1 > rs2 (BLT.T rs2, rs1, disp) |
 | BLE.T | B | 0-00 | 0+ | rs1, rs2, disp | Pseudo | branch if rs1 ≤ rs2 (BGE.T rs2, rs1, disp) |
@@ -676,10 +707,10 @@ holds 8 further func planes per opcode, all reserved.
 <tr><th>Category (upper trits)</th><th class="r6-t">Base Ternary <code>xx00</code></th><th class="r6-b">Base Binary <code>xx-0</code></th><th class="r6-e">Extensions <code>xx+0</code></th></tr>
 </thead>
 <tbody>
-<tr><td><code>00</code> I-ALU</td><td class="r6-t"><code>0000</code> — 8/9 (ADDI, shifts, ROT, SLTI, ORI, XORI, ANDI)</td><td class="r6-b"><code>00-0</code> — 8/9 (RV32I I-ALU)</td><td class="r6-e"><code>00+0</code> — 1/9 (Ztl: TLUTI)</td></tr>
+<tr><td><code>00</code> I-ALU</td><td class="r6-t"><code>0000</code> — 7/9 (ADDI, SHI, ROT, SLTI, ORI, XORI, ANDI; <code>-0</code> reserved — E-4)</td><td class="r6-b"><code>00-0</code> — 8/9 (RV32I I-ALU)</td><td class="r6-e"><code>00+0</code> — 1/9 (Ztl: TLUTI)</td></tr>
 <tr><td><code>0-</code> Branch</td><td class="r6-t"><code>0-00</code> — 6/9 (3-way + 2-way)</td><td class="r6-b"><code>0--0</code> — 2/9 (BLTU, BGEU)</td><td class="r6-e"><code>0-+0</code> — reserved</td></tr>
 <tr><td><code>0+</code> Store</td><td class="r6-t"><code>0+00</code> — 3/9 (SW, SH, ST)</td><td class="r6-b"><code>0+-0</code> — 3/9 (SW, SH, SB)</td><td class="r6-e"><code>0++0</code> — reserved</td></tr>
-<tr><td><code>--</code> R-ALU</td><td class="r6-t"><code>--00</code> — 8/9 (ALU, shifts, logic)</td><td class="r6-b"><code>---0</code> — <b>9/9 full</b></td><td class="r6-e"><code>--+0</code> — <b>9/9 full</b> (M: 5, F arith: 4)</td></tr>
+<tr><td><code>--</code> R-ALU</td><td class="r6-t"><code>--00</code> — 8/9 (ALU, SH, ROTR, logic)</td><td class="r6-b"><code>---0</code> — <b>9/9 full</b></td><td class="r6-e"><code>--+0</code> — <b>9/9 full</b> (M: 5, F arith: 4)</td></tr>
 <tr><td><code>-0</code> Compare/Unary</td><td class="r6-t"><code>-000</code> — 5/9 (CMP, STI, MV2, MIN, MAX)</td><td class="r6-b"><code>-0-0</code> — 0/9</td><td class="r6-e"><code>-0+0</code> — 8/9 (F cmp/cvt: 3, Ztb: 2, P scalar: 3)</td></tr>
 <tr><td><code>-+</code> Load</td><td class="r6-t"><code>-+00</code> — 4/9 (LW, LH, LT, JALR)</td><td class="r6-b"><code>-+-0</code> — 5/9 (RV32I loads)</td><td class="r6-e"><code>-++0</code> — <b>9/9 full</b> (A: LR, SC, 7×AMO)</td></tr>
 <tr><td><code>+-</code> D/Control</td><td class="r6-t"><code>+-00</code> — 2/9 (MAJV, MINV)</td><td class="r6-b"><code>+--0</code> — 0/9</td><td class="r6-e"><code>+-+0</code> — 4/9 (TLUT, MAC, FMA, TMAC)</td></tr>
@@ -804,7 +835,8 @@ composition.
 
 | R2v2 | REBEL-6 disposition |
 |------|---------------------|
-| ADD.T, ADDI.T, SUB.T, STI.T, BCEG.T, BNE.T, JAL.T, JALR.T, LI.T, LI2.T, MAJV.T, SLI\*.T, SRI\*.T, MV.T, NOP.T | Base Ternary (present, widened) |
+| ADD.T, ADDI.T, SUB.T, STI.T, BCEG.T, BNE.T, JAL.T, JALR.T, LI.T, LI2.T, MAJV.T, MV.T, NOP.T | Base Ternary (present, widened) |
+| SLI\*.T, SRI\*.T | pseudos over the signed-amount `SHI<f>.T` — [Errata E-4](#errata) |
 | CMPW.T | ≡ `CMP.T` (wordwise three-way compare) |
 | CMPT.T (tritwise compare) | `CMPT.T` canonical gate over `TLUT.T` — [Ztl](rebel6-extensions.md#ztl--ternary-logic) |
 | MAXT.T / MINT.T (tritwise) | ≡ `OR.T` / `AND.T` — tritwise max/min already in base |
@@ -920,3 +952,57 @@ and must reject the ambiguity otherwise. The Ternary Workbench reference assembl
 rename: on REBEL-6 (where the A extension is always in the table) `ROT.T` is the rotate and `SC.T`
 is exclusively the store-conditional; on REBEL-2 V2.0 and V2.2 (no atomics) `SC.T` remains a
 deprecated alias and disassembly prints `ROT.T`.
+
+### E-4 — shift direction belongs in the amount's sign; the left/right split is removed
+
+**Defect.** A REBEL-6 shift amount is already a balanced-ternary value — `shamt` is 4 trits, ±40 —
+and a balanced number carries its direction in its own sign. Yet the ISA spent separate mnemonics
+*and separate func codes* on left versus right (`SL*`/`SR*`, `SLI*`/`SRI*`), and left negative
+amounts undefined: the reference simulator aborted on them with "spec open". That is binary
+thinking imported into a balanced ISA — a two's-complement machine must encode direction
+out-of-band because an unsigned shift field cannot say "the other way"; a balanced field says it
+for free. The same insight that gave REBEL-6 one fill *trit* where binary would need two bits (see
+[Shift fill](#rebel-6-base-ternary)) applies to direction, and adopting it removes the
+undefined-negative-amount hole instead of papering over it.
+
+**Resolution.** One shift family with a **signed amount**, direction = sign: `k > 0` shifts toward
+the MST (the old left), `k < 0` toward the LST, `k = 0` is the identity, `|k| ≥ 24` yields
+all-fill. The fill-trit mechanism is unchanged. Register amounts are read from the **low 4 trits
+of rs2** (balanced, ±40), which makes the sign inspection a 4-trit scan in hardware and finally
+defines out-of-range register amounts. The architectural set shrinks from 13 shift instructions to
+7:
+
+| | Before | After |
+|---|---|---|
+| Register shifts | SLN/SLZ/SLP (func `-+`), SRN/SRZ/SRP (func `0-`) | **SHN/SHZ/SHP.T** — one func (`-+`) |
+| Immediate shifts | SLIN/SLIZ/SLIP (func `--`), SRIN/SRIZ/SRIP (func `-0`) | **SHIN/SHIZ/SHIP.T** — one func (`--`) |
+| Rotate | ROT.T | ROT.T (signed, both directions, mod 24) + **ROTR.T** (register amount, freed func `0-`) |
+
+The freed R-type func slot (`0-` in group `--00`) is taken by **`ROTR.T`**, the register-amount
+rotate that completes the group's orthogonality; its rd2 slot is required zero, the same selector
+rule as `ROT.T`. The freed I-type func slot (`-0` in group `0000`) is *reserved*. The signed
+amount is the exponent: `x·3^k` and `x/3^k` are the same instruction with the amount's sign
+flipped, so strength reduction becomes sign-preserving arithmetic on the exponent rather than a
+left/right case split, and dynamic-direction shifts (normalization loops, funnel shifts, softfloat
+exponent alignment — `CLZT.T` feeding a shift directly) are single instructions.
+
+**The register-form ruling (Option A — full collapse).** Immediate forms collapse losslessly — the
+assembler rewrites `SRIZ.T rd, rs, k` as `SHIZ.T rd, rs, −k` at zero cost. Register forms cannot:
+an assembler cannot negate a runtime value. The full collapse is adopted anyway: code that wants a
+right shift by a register amount materializes a negative amount (one `STI.T`, outside the loop in
+the common case; a compiler simply folds the negation into how it computes the amount).
+Dynamic-direction shifts are precisely where the signed form shines, RV32I translation is
+unaffected (RV32I `sll`/`srl`/`sra` live in the Base Binary group, untouched), and hand-written
+ternary assembly with dynamic right-shift amounts is rare.
+
+**Disposition of the old names.** `SL<f>.T` and `SLI<f>.T` live on as pseudo-instructions mapping
+1:1 onto `SH<f>.T`/`SHI<f>.T`; `SRI<f>.T` lives on as a pseudo onto `SHI<f>.T` with the amount
+negated. The register right shifts `SR{N,Z,P}.T` are **retired** — assembling them is an error.
+Disassembly always prints the signed canonical names.
+
+**Compatibility.** Assembly source assembles unchanged except for uses of the retired `SR*.T`
+register forms, which must be rewritten (negate the amount register once, then `SH<f>.T`). Machine
+code predating this erratum is *not* binary compatible where it used the right-shift funcs
+(`0-` in `--00`, now `ROTR.T`; `-0` in `0000`, now reserved) — as with E-1, REBEL-6 has no hardware
+or software in production, so the funcs were reallocated rather than worked around. RV32I binary
+compatibility is unaffected.

@@ -5,8 +5,11 @@ namespace TernaryWorkbench.RebelAssembler.Assembly.Models;
 /// <para>
 /// <paramref name="Template"/> lists the operands handed to <paramref name="Target"/>. An entry of
 /// the form <c>$n</c> copies source operand <c>n</c> (so operands may be reordered or duplicated);
-/// any other entry is a literal operand. A literal <c>1</c> is the fall-through displacement,
-/// used to steer a comparison outcome to PC+1.
+/// an entry of the form <c>$-n</c> copies source operand <c>n</c> <b>negated</b> — a numeric
+/// operand flips sign, a trit-string operand is tritwise inverted (used by the immediate right
+/// shifts, whose signed replacement takes the negated amount — errata E-4). Any other entry is a
+/// literal operand. A literal <c>1</c> is the fall-through displacement, used to steer a
+/// comparison outcome to PC+1.
 /// </para>
 /// <para>
 /// Example: <c>BLE.T rs1, rs2, L</c> → <c>BCEG.T rs2, rs1, L, L</c> is
