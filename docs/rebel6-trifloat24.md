@@ -15,7 +15,7 @@ Digits are `−` (−1), `0`, and `+` (+1). A digit is a **trit**. Value of an n
 Four properties matter here:
 
 - **There is no sign bit.** The sign of a number is the sign of its most significant non-zero trit. Negation is digit-wise: swap every `−` and `+`, leave `0` alone. There is exactly one representation of zero (all trits `0`) — no `+0` and `−0`.
-- **Truncation is round-to-nearest.** Discarding trailing trits leaves a tail bounded by half the last retained trit's weight, so truncation always rounds to the nearest representable value. Exact ties cannot occur in a terminating expansion. No rounding-mode field and no tie-breaking rule are needed for the default mode.
+- **Truncation is round-to-nearest.** Discarding trailing trits leaves a tail bounded by half the last retained trit's weight, so truncation always rounds to the nearest representable value. Exact ties cannot occur in a terminating expansion — which covers `+`, `−` and `×` of representable operands. Division is the exception: quotients can have non-terminating expansions where exact half-ulp ties do occur, and §4.2 pins the tie rule. No rounding-mode field is needed for the default mode.
 - **The range is symmetric.** An n-trit balanced integer spans ±(3ⁿ−1)/2. There is no asymmetry analogous to two's complement's extra negative value.
 - **A tryte is 6 trits** (729 values, ≈9.51 bits). REBEL-6 data memory is tryte-addressed, little-endian.
 
@@ -142,9 +142,32 @@ Note that comparison must be canonical-form-aware regardless — `S = 3, E = 4` 
 |---|---|---|
 | `0` | finite | value = `S × 3^E` |
 | `+` | infinity | sign from `S`'s leading non-zero trit; `S` must be non-zero and canonical (recommend `S = ±1, E = 0`) |
-| `−` | NaN | payload may live in `S`; define whether NaN is quiet or signaling, and the propagation rule |
+| `−` | NaN | quiet-only, single canonical encoding — see §4.3 |
 
-Open items to settle during implementation: NaN payload convention, quiet/signaling distinction, and whether `C = +` with `S = 0` is a valid encoding (recommend: reject as non-canonical).
+`C = +` with `S = 0` is **not** a valid encoding; consumers treat it as non-canonical input per §3.4.
+
+### 4.1 Overflow and division by zero
+
+Both are defined, non-trapping:
+
+- **Overflow.** A finite result whose magnitude exceeds the largest normal (`S = ±(3¹⁸−1)/2, E = +121`) becomes **infinity with the sign of the exact result**. Saturating to the largest finite value instead would silently corrupt magnitudes and break the monotonicity of comparison across the overflow boundary; infinity preserves the "too large" signal that ported IEEE-shaped code expects.
+- **Division by zero.** `x ÷ 0` with `x ≠ 0` yields **infinity carrying the dividend's sign** — the format has a single zero, so the divisor contributes no sign. `0 ÷ 0` yields NaN. This is what §3.1's guard idiom (`z = 1.0 / (x − y)`) already presumes: a defined result, never a trap.
+
+### 4.2 Rounding of non-terminating quotients
+
+`+`, `−` and `×` of representable operands have terminating expansions, so truncation is exactly round-to-nearest and tie-free (§1.1). **Division does not**: a quotient is a rational whose balanced-ternary expansion may not terminate, and exact half-ulp ties occur (`1 ÷ 2` sits exactly between two representables). The tie rule for division is **toward zero**: it needs no extra comparator (cheapest in hardware and softfloat), it is consistent with the format's truncation ethos, and it is deterministic. This is the only tie-breaking rule in the format, and it applies only to `÷`.
+
+### 4.3 NaN convention
+
+- NaN is **quiet-only**; there are no signaling NaNs (the format has no floating-point trap architecture to serve them).
+- There is **one canonical NaN encoding**; payloads are not preserved — any operation with a NaN operand returns the canonical NaN.
+- **Comparison involving NaN is unordered**: the F extension's `FCMP.T` returns `0` when either operand is NaN, and language-level relational operators (`<`, `>`, `==`) are false against NaN. Library environments that additionally require a total order for sorting (e.g. .NET `CompareTo`) may define one, ordering NaN consistently at one end; that total order is a library contract, not part of the format.
+
+### 4.4 Conversions
+
+- **float → integer** (`FCVT.W.T`): the value is converted by balanced truncation — which in balanced ternary *is* round-to-nearest-integer (§1.1). Results beyond the 24-trit integer range, including ±Inf, **saturate** to ±(3²⁴−1)/2. **NaN converts to 0.** Rationale: saturation is thereby reserved for genuinely large magnitudes, so a NaN can never masquerade as a range-limit value — a distinction IEEE-convention ISAs (which convert NaN to the maximum integer) cannot make.
+- **integer → float** (`FCVT.T.W`): exact whenever the magnitude fits in 18 significand trits; otherwise truncation-rounded per the default mode.
+- **binary float ↔ trifloat24** (library-level): converted through exact decomposition of the binary value, never through host `double` arithmetic — `double` is neither a superset nor a subset of this format (§6).
 
 ---
 
@@ -187,7 +210,7 @@ The following must exist. The first two are the ones that catch real bugs.
 
 **No signed zero.** No operation produces a second zero encoding. `1/x` and `1/y` agree in sign whenever `x == y`.
 
-**No ties.** Truncation equals round-to-nearest: exhaustive sweep at small exponents confirming no result requires a tie-breaking rule.
+**No ties in `+`, `−`, `×`.** Truncation equals round-to-nearest: exhaustive sweep at small exponents confirming no result of these operations requires a tie-breaking rule. **Division ties.** Directed fixtures at exact half-ulp quotients (`1 ÷ 2` and analogues at other exponents) asserting the §4.2 toward-zero rule.
 
 **Special values.** Class-trit decode for ±Inf and NaN; propagation through all four operations; `E`'s full ±121 range usable (no encoding reserved).
 
@@ -197,8 +220,8 @@ The following must exist. The first two are the ones that catch real bugs.
 
 ## 7. Summary of decisions for the implementer
 
-**Fixed:** 18/1/5 field widths; tryte alignment; no sign field; no exponent bias; no signed zero; class trit for Inf/NaN; truncation as default rounding; **gradual underflow with exponent clamped at `E_min`**; canonicalization rule of §3.4.
+**Fixed:** 18/1/5 field widths; tryte alignment; no sign field; no exponent bias; no signed zero; class trit for Inf/NaN; truncation as default rounding; **gradual underflow with exponent clamped at `E_min`**; canonicalization rule of §3.4; overflow → ±Inf and non-trapping division by zero (§4.1); toward-zero ties for `÷` only (§4.2); quiet-only canonical NaN, unordered comparison (§4.3); saturating `FCVT` with NaN → 0 (§4.4); `C = +, S = 0` rejected as non-canonical; normalize-on-read for the software library (§3.4).
 
-**To decide during implementation, with evidence:** field order (§5.1, benchmark required); non-canonical input handling (normalize vs fault); NaN payload and quiet/signaling convention; whether `C = +, S = 0` is valid.
+**To decide during implementation, with evidence:** field order (§5.1, benchmark required).
 
 **Do not do:** flush-to-zero; add a sign field; add an exponent bias; add a rounding-mode field for the default mode; design a 48-trit double before a workload requires it.

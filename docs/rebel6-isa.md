@@ -87,7 +87,11 @@ The three-way branches are the one exception: they read the B-type field as **tw
 displacements** `off1`\|`off2`, ±364 each, trading reach for a second branch target.
 
 The D format supplies a third source in the rd2 slot. Base Ternary uses it for the majority and
-minority votes; the extensions lean on it heavily, because `rd = f(rs1, rs2, rs3)` is exactly the
+minority votes. **Majority is the per-trit median**: at each trit position the result is the median
+of the three input trits, so a lane holding two or three equal trits returns the repeated value and
+a lane holding all three distinct values (`−`, `0`, `+`) returns `0`. Minority is the negated
+median — the identity `MINV.T = STI.T(MAJV.T)` holds, and both are retained as single
+instructions. The extensions lean on the D format heavily, because `rd = f(rs1, rs2, rs3)` is exactly the
 shape of a multiply-accumulate (`MAC.T`, `FMA.T`, `TMAC.T`) and of a two-input gate applied under a
 programmable truth table (`TLUT.T`).
 
@@ -576,8 +580,8 @@ entry, cause codes, privilege banks — are specified in the
 | SW.T | B | 0+00 | -- | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (word) |
 | SH.T | B | 0+00 | -0 | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (halfword) |
 | ST.T | B | 0+00 | -+ | rs1, rs2, imm12 | Ternary Store | mem[rs1 + imm12] = rs2 (tryte) |
-| MAJV.T | D | +-00 | -- | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = majority(rs1, rs2, rs3) |
-| MINV.T | D | +-00 | -0 | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = minority(rs1, rs2, rs3) |
+| MAJV.T | D | +-00 | -- | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = majority(rs1, rs2, rs3) — per-trit median |
+| MINV.T | D | +-00 | -0 | rd1, rs1, rs2, rs3 | Ternary ALU | rd1 = minority(rs1, rs2, rs3) — per-trit negated median |
 | LI2.T | X | +000 | -- | rd1, rd2, imm1, imm2 | Ternary ALU | rd1 = imm1;  rd2 = imm2 |
 | FENCE.T | R | ++00 | -0 | | Ternary System | full memory fence (pred/succ fields reserved zero) |
 | WFI.T | R | ++00 | -+ | | Ternary System | wait for interrupt (see [platform](rebel6-platform.md#interrupts)) |
