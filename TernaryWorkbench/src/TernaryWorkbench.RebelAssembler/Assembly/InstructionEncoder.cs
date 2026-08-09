@@ -8,7 +8,7 @@ internal static class InstructionEncoder
     /// <summary>Translate a single-instruction string to a 10-trit machine code string.</summary>
     public static string Translate(string instruction, IReadOnlyDictionary<string, InstructionPattern>? patterns = null)
     {
-        var parsed = InstructionParser.ParsePage(instruction);
+        var parsed = InstructionParser.ParsePage(instruction, PageInstructionCount, RegisterDictionary);
         if (parsed.Instructions.Count != 1)
             throw new InvalidOperationException("Translate expects exactly one instruction.");
         return Translate(parsed.Instructions[0], parsed.Labels, patterns);

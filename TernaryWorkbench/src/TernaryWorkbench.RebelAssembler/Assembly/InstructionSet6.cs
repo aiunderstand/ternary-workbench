@@ -180,11 +180,18 @@ internal static class InstructionSet6
             { "AND.T",  new InstructionPattern("AND.T",  "--00", [Rd1, Rs1, Rs2], Func4("00+0")) },
 
             // ----------------------------------------------------------------
-            // R-type misc  opcode=-000
+            // R-type compare/unary  opcode=-000
+            // MIN.T / MAX.T are wordwise (arithmetic select); their funcs are negatives
+            // of each other, mirroring min(a,b) = -max(-a,-b). MV2.T is the dual move
+            // (both reads complete before either write); SWAP.T is its operand-crossed
+            // pseudo (see PseudoExpansions).
             // ----------------------------------------------------------------
             { "CMP.T",  new InstructionPattern("CMP.T",  "-000", [Rd1, Rs1, Rs2], Func4("00--")) },
             { "STI.T",  new InstructionPattern("STI.T",  "-000", [Rd1, Rs1],
                 Merge(Func4("00-0"), Fixed(Rs2, DefaultField))) },
+            { "MV2.T",  new InstructionPattern("MV2.T",  "-000", [Rd1, Rd2, Rs1, Rs2], Func4("00-+")) },
+            { "MIN.T",  new InstructionPattern("MIN.T",  "-000", [Rd1, Rs1, Rs2], Func4("000-")) },
+            { "MAX.T",  new InstructionPattern("MAX.T",  "-000", [Rd1, Rs1, Rs2], Func4("000+")) },
 
             // ----------------------------------------------------------------
             // I-type ALU  opcode=0000   (Imm → rs2 slot; NOP = all-zero)
@@ -194,14 +201,17 @@ internal static class InstructionSet6
 
             // Immediate shifts read imm12 as its two natural 6-trit halves: the rs2 slot
             // (imm[11:6]) carries the fill selector, the rd2 slot (imm[5:0]) carries shamt.
-            // SC.T is cyclic, so it has no fill and requires the selector half to be zero.
+            // ROT.T is cyclic, so it has no fill and requires the selector half to be zero.
+            // (ROT.T was named SC.T before the A extension reclaimed that mnemonic for
+            // store-conditional; see docs/rebel6-isa.md errata E-3. No alias here: with the
+            // A extension in the table, SC.T unambiguously means store-conditional.)
             { "SLIN.T",  new InstructionPattern("SLIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000-"))) },
             { "SLIZ.T",  new InstructionPattern("SLIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "000000"))) },
             { "SLIP.T",  new InstructionPattern("SLIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00--"), Fixed(Rs2, "00000+"))) },
             { "SRIN.T",  new InstructionPattern("SRIN.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "00000-"))) },
             { "SRIZ.T",  new InstructionPattern("SRIZ.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "000000"))) },
             { "SRIP.T",  new InstructionPattern("SRIP.T",  "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-0"), Fixed(Rs2, "00000+"))) },
-            { "SC.T",    new InstructionPattern("SC.T",    "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-+"), Fixed(Rs2, DefaultField))) },
+            { "ROT.T",   new InstructionPattern("ROT.T",   "0000", [Rd1, Rs1, Shamt], Merge(Func4("00-+"), Fixed(Rs2, DefaultField))) },
 
             { "SLTI.T",  new InstructionPattern("SLTI.T",  "0000", [Rd1, Rs1, Imm], Func4("000-")) },
             { "ORI.T",   new InstructionPattern("ORI.T",   "0000", [Rd1, Rs1, Imm], Func4("000+")) },
@@ -261,6 +271,22 @@ internal static class InstructionSet6
             // [Rd1, Rd2, Rs1, Rs2] — Rs1/Rs2 slots carry the two immediates
             // ----------------------------------------------------------------
             { "LI2.T",   new InstructionPattern("LI2.T",   "+000", [Rd1, Rd2, Rs1, Rs2], Func4("00--")) },
+
+            // ----------------------------------------------------------------
+            // System  opcode=++00   (zero operands; all four operand slots zero)
+            // Funcs deliberately match REBEL-2 V2.2's ++ control group; TRET.T takes
+            // its predecessor IRET.T's slot. Semantics: docs/rebel6-platform.md.
+            // ----------------------------------------------------------------
+            { "FENCE.T",  new InstructionPattern("FENCE.T",  "++00", [],
+                Merge(Func4("00-0"), Fixed(Rs1, DefaultField), Fixed(Rs2, DefaultField), Fixed(Rd1, DefaultField), Fixed(Rd2, DefaultField))) },
+            { "WFI.T",    new InstructionPattern("WFI.T",    "++00", [],
+                Merge(Func4("00-+"), Fixed(Rs1, DefaultField), Fixed(Rs2, DefaultField), Fixed(Rd1, DefaultField), Fixed(Rd2, DefaultField))) },
+            { "TRET.T",   new InstructionPattern("TRET.T",   "++00", [],
+                Merge(Func4("00+-"), Fixed(Rs1, DefaultField), Fixed(Rs2, DefaultField), Fixed(Rd1, DefaultField), Fixed(Rd2, DefaultField))) },
+            { "EBREAK.T", new InstructionPattern("EBREAK.T", "++00", [],
+                Merge(Func4("00+0"), Fixed(Rs1, DefaultField), Fixed(Rs2, DefaultField), Fixed(Rd1, DefaultField), Fixed(Rd2, DefaultField))) },
+            { "ECALL.T",  new InstructionPattern("ECALL.T",  "++00", [],
+                Merge(Func4("00++"), Fixed(Rs1, DefaultField), Fixed(Rs2, DefaultField), Fixed(Rd1, DefaultField), Fixed(Rd2, DefaultField))) },
 
             // =================================================================
             // LONG-IMMEDIATE FORMS (2-trit opcode, last trit ≠ 0)
@@ -327,6 +353,115 @@ internal static class InstructionSet6
             { "SH",      new InstructionPattern("SH",  "0+-0", [Rs1, Rs2, Disp], Func4("00-0")) },
             { "SB",      new InstructionPattern("SB",  "0+-0", [Rs1, Rs2, Disp], Func4("00-+")) },
 
+            // =================================================================
+            // EXTENSIONS (opcode suffix +0) — ternary-only designs; the sole
+            // exception is Zicsr (binary System opcode ++-0), which requires the
+            // Base Binary layer. Encodings: docs/rebel6-extensions.md.
+            // =================================================================
+
+            // ----------------------------------------------------------------
+            // M — integer multiply / divide  opcode=--+0 (R-shape, shared with F arith)
+            // DIV.T truncates toward zero and pairs with REM.T; MOD.T is floored.
+            // ----------------------------------------------------------------
+            { "MUL.T",   new InstructionPattern("MUL.T",   "--+0", [Rd1, Rs1, Rs2], Func4("00--")) },
+            { "MULH.T",  new InstructionPattern("MULH.T",  "--+0", [Rd1, Rs1, Rs2], Func4("00-0")) },
+            { "DIV.T",   new InstructionPattern("DIV.T",   "--+0", [Rd1, Rs1, Rs2], Func4("000-")) },
+            { "REM.T",   new InstructionPattern("REM.T",   "--+0", [Rd1, Rs1, Rs2], Func4("000+")) },
+            { "MOD.T",   new InstructionPattern("MOD.T",   "--+0", [Rd1, Rs1, Rs2], Func4("00+-")) },
+
+            // ----------------------------------------------------------------
+            // F — trifloat24 scalar float (docs/rebel6-trifloat24.md)
+            // Arithmetic shares opcode --+0 with M; compare/convert live in -0+0.
+            // ----------------------------------------------------------------
+            { "FADD.T",   new InstructionPattern("FADD.T",   "--+0", [Rd1, Rs1, Rs2], Func4("00-+")) },
+            { "FSUB.T",   new InstructionPattern("FSUB.T",   "--+0", [Rd1, Rs1, Rs2], Func4("0000")) },
+            { "FMUL.T",   new InstructionPattern("FMUL.T",   "--+0", [Rd1, Rs1, Rs2], Func4("00+0")) },
+            { "FDIV.T",   new InstructionPattern("FDIV.T",   "--+0", [Rd1, Rs1, Rs2], Func4("00++")) },
+            { "FCMP.T",   new InstructionPattern("FCMP.T",   "-0+0", [Rd1, Rs1, Rs2], Func4("00--")) },
+            { "FCVT.W.T", new InstructionPattern("FCVT.W.T", "-0+0", [Rd1, Rs1],
+                Merge(Func4("00-0"), Fixed(Rs2, DefaultField))) },
+            { "FCVT.T.W", new InstructionPattern("FCVT.T.W", "-0+0", [Rd1, Rs1],
+                Merge(Func4("00-+"), Fixed(Rs2, DefaultField))) },
+
+            // ----------------------------------------------------------------
+            // A — atomics  opcode=-++0 (load-category extension slot; word-sized)
+            // Assembles the bare (relaxed) forms only: the aq/rl ordering trits in the
+            // rd2 slot encode as zero. Suffixed .AQ/.RL/.AQRL forms are reserved.
+            // SC.T here is store-conditional — the cyclic shift is ROT.T (errata E-3).
+            // ----------------------------------------------------------------
+            { "LR.T",      new InstructionPattern("LR.T",      "-++0", [Rd1, Rs1],
+                Merge(Func4("00--"), Fixed(Rs2, DefaultField))) },
+            { "SC.T",      new InstructionPattern("SC.T",      "-++0", [Rd1, Rs1, Rs2], Func4("00-0")) },
+            { "AMOSWAP.T", new InstructionPattern("AMOSWAP.T", "-++0", [Rd1, Rs1, Rs2], Func4("00-+")) },
+            { "AMOADD.T",  new InstructionPattern("AMOADD.T",  "-++0", [Rd1, Rs1, Rs2], Func4("000-")) },
+            { "AMOAND.T",  new InstructionPattern("AMOAND.T",  "-++0", [Rd1, Rs1, Rs2], Func4("0000")) },
+            { "AMOOR.T",   new InstructionPattern("AMOOR.T",   "-++0", [Rd1, Rs1, Rs2], Func4("000+")) },
+            { "AMOXOR.T",  new InstructionPattern("AMOXOR.T",  "-++0", [Rd1, Rs1, Rs2], Func4("00+-")) },
+            { "AMOMIN.T",  new InstructionPattern("AMOMIN.T",  "-++0", [Rd1, Rs1, Rs2], Func4("00+0")) },
+            { "AMOMAX.T",  new InstructionPattern("AMOMAX.T",  "-++0", [Rd1, Rs1, Rs2], Func4("00++")) },
+
+            // ----------------------------------------------------------------
+            // D-shape extension ops  opcode=+-+0   (Rd2 slot = rs3 / truth table)
+            // TDOT.T is TMAC.T with rs3 pinned to X0; its extra pinned slot outscores
+            // TMAC.T during disassembly exactly as NOP.T outscores ADDI.T.
+            // ----------------------------------------------------------------
+            { "TLUT.T",  new InstructionPattern("TLUT.T",  "+-+0", [Rd1, Rs1, Rs2, Rd2], Func4("00--")) },
+            { "MAC.T",   new InstructionPattern("MAC.T",   "+-+0", [Rd1, Rs1, Rs2, Rd2], Func4("00-0")) },
+            { "FMA.T",   new InstructionPattern("FMA.T",   "+-+0", [Rd1, Rs1, Rs2, Rd2], Func4("00-+")) },
+            { "TMAC.T",  new InstructionPattern("TMAC.T",  "+-+0", [Rd1, Rs1, Rs2, Rd2], Func4("000-")) },
+            { "TDOT.T",  new InstructionPattern("TDOT.T",  "+-+0", [Rd1, Rs1, Rs2],
+                Merge(Func4("000-"), Fixed(Rd2, DefaultField))) },
+
+            // ----------------------------------------------------------------
+            // P — packed ternary scalar reductions/quantize  opcode=-0+0 (with F cmp/cvt, Ztb)
+            // ----------------------------------------------------------------
+            { "TSUM.T",  new InstructionPattern("TSUM.T",  "-0+0", [Rd1, Rs1],
+                Merge(Func4("000+"), Fixed(Rs2, DefaultField))) },
+            { "QNT.T",   new InstructionPattern("QNT.T",   "-0+0", [Rd1, Rs1, Rs2], Func4("00+-")) },
+            { "HMAX.T",  new InstructionPattern("HMAX.T",  "-0+0", [Rd1, Rs1],
+                Merge(Func4("00+0"), Fixed(Rs2, DefaultField))) },
+
+            // ----------------------------------------------------------------
+            // Ztl — programmable tritwise gates  TLUTI.T opcode=00+0 (I-shape)
+            // The unary canonical gates are patterns over TLUTI.T with the 3-trit
+            // table pinned in the rd2 slot (imm[5:0]); table entry for input a sits
+            // at trit position a+1. Their extra pinned slots win disassembly.
+            // Binary gates (KIMP/CMPT/CONS) need the 9-trit table in rs3 — they are
+            // documented idioms over TLUT.T, not single-instruction expansions.
+            // ----------------------------------------------------------------
+            { "TLUTI.T", new InstructionPattern("TLUTI.T", "00+0", [Rd1, Rs1, Imm], Func4("00--")) },
+            { "NTI.T",   new InstructionPattern("NTI.T",   "00+0", [Rd1, Rs1],
+                Merge(Func4("00--"), Fixed(Rs2, DefaultField), Fixed(Rd2, "000--+"))) },
+            { "PTI.T",   new InstructionPattern("PTI.T",   "00+0", [Rd1, Rs1],
+                Merge(Func4("00--"), Fixed(Rs2, DefaultField), Fixed(Rd2, "000-++"))) },
+            { "MTI.T",   new InstructionPattern("MTI.T",   "00+0", [Rd1, Rs1],
+                Merge(Func4("00--"), Fixed(Rs2, DefaultField), Fixed(Rd2, "000+0+"))) },
+            { "CYU.T",   new InstructionPattern("CYU.T",   "00+0", [Rd1, Rs1],
+                Merge(Func4("00--"), Fixed(Rs2, DefaultField), Fixed(Rd2, "000-+0"))) },
+            { "CYD.T",   new InstructionPattern("CYD.T",   "00+0", [Rd1, Rs1],
+                Merge(Func4("00--"), Fixed(Rs2, DefaultField), Fixed(Rd2, "0000-+"))) },
+
+            // ----------------------------------------------------------------
+            // Ztb — trit manipulation  opcode=-0+0
+            // ----------------------------------------------------------------
+            { "CLZT.T",  new InstructionPattern("CLZT.T",  "-0+0", [Rd1, Rs1],
+                Merge(Func4("000-"), Fixed(Rs2, DefaultField))) },
+            { "TCNT.T",  new InstructionPattern("TCNT.T",  "-0+0", [Rd1, Rs1],
+                Merge(Func4("0000"), Fixed(Rs2, DefaultField))) },
+
+            // ----------------------------------------------------------------
+            // Zicsr — CSR access  opcode=++-0 (binary System; requires Base Binary)
+            // I-shape: CSR number rides the imm12 field (split around rd1); rs1 slot
+            // carries the source register, or the 5-bit zimm as a value for the *I forms.
+            // CSR numbers accept names from CsrNames (e.g. mstatus) or plain numerics.
+            // ----------------------------------------------------------------
+            { "CSRRW",   new InstructionPattern("CSRRW",  "++-0", [Rd1, Imm, Rs1], Func4("00--")) },
+            { "CSRRS",   new InstructionPattern("CSRRS",  "++-0", [Rd1, Imm, Rs1], Func4("00-0")) },
+            { "CSRRC",   new InstructionPattern("CSRRC",  "++-0", [Rd1, Imm, Rs1], Func4("00-+")) },
+            { "CSRRWI",  new InstructionPattern("CSRRWI", "++-0", [Rd1, Imm, Rs1], Func4("000-")) },
+            { "CSRRSI",  new InstructionPattern("CSRRSI", "++-0", [Rd1, Imm, Rs1], Func4("0000")) },
+            { "CSRRCI",  new InstructionPattern("CSRRCI", "++-0", [Rd1, Imm, Rs1], Func4("000+")) },
+
         };
 
     // -------------------------------------------------------------------------
@@ -344,6 +479,34 @@ internal static class InstructionSet6
             // remaining orderings need no encoding of their own (as in RISC-V).
             { "BGT.T", new PseudoExpansion("BLT.T", 3, ["$1", "$0", "$2"]) },
             { "BLE.T", new PseudoExpansion("BGE.T", 3, ["$1", "$0", "$2"]) },
+
+            // SWAP.T a, b exchanges two registers via the dual move: both reads complete
+            // before either write, so the crossed operands express the swap exactly.
+            { "SWAP.T", new PseudoExpansion("MV2.T", 2, ["$0", "$1", "$1", "$0"]) },
+
+            // REBEL-2 V2.2's cycle-up gate; canonical REBEL-6 name is CYU.T (Ztl).
+            { "CYCLEUP.T", new PseudoExpansion("CYU.T", 2, ["$0", "$1"]) },
+        };
+
+    // -------------------------------------------------------------------------
+    // CSR name table (Zicsr) — standard RISC-V numbers, resolved by the encoder
+    // before label lookup. The shim maps them onto the negative-range trap
+    // registers; see docs/rebel6-platform.md.
+    // -------------------------------------------------------------------------
+
+    public static readonly IReadOnlyDictionary<string, int> CsrNames =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "sstatus",  0x100 }, { "sie",      0x104 }, { "stvec",    0x105 },
+            { "sscratch", 0x140 }, { "sepc",     0x141 }, { "scause",   0x142 },
+            { "sip",      0x144 },
+            { "mstatus",  0x300 }, { "medeleg",  0x302 }, { "mideleg",  0x303 },
+            { "mie",      0x304 }, { "mtvec",    0x305 },
+            { "mscratch", 0x340 }, { "mepc",     0x341 }, { "mcause",   0x342 },
+            { "mip",      0x344 },
+            { "cycle",    0xC00 }, { "time",     0xC01 }, { "instret",  0xC02 },
+            { "cycleh",   0xC80 }, { "instreth", 0xC82 },
+            { "mhartid",  0xF14 },
         };
 
     // -------------------------------------------------------------------------

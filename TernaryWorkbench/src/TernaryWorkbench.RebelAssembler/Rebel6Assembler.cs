@@ -11,7 +11,9 @@ namespace TernaryWorkbench.RebelAssembler;
 /// <list type="bullet">
 ///   <item>Instructions are 32 trits wide (vs 10 trits in REBEL-2).</item>
 ///   <item>729 registers (6-trit address, vs 9 registers in REBEL-2); X0 hardwired zero.</item>
-///   <item>78 instruction patterns: 47 ternary-native + 27 binary (RV32I-compatible) + 4 pseudo (NOP.T, MV.T, BGT.T, BLE.T). 8 instruction formats: R, I, B, D, X (4-trit opcode), G, Y (2-trit opcode), L (RV32I pass-through).</item>
+///   <item>127 instruction patterns: 55 ternary-native base + 27 binary (RV32I-compatible) + 37 extension (M, A, F, P, Ztl, Ztb, Zicsr — see docs/rebel6-extensions.md) + 8 pseudo patterns (NOP.T, MV.T, TDOT.T, NTI.T, PTI.T, MTI.T, CYU.T, CYD.T) + 4 operand-rewrite pseudos (BGT.T, BLE.T, SWAP.T, CYCLEUP.T). 8 instruction formats: R, I, B, D, X (4-trit opcode), G, Y (2-trit opcode), L (RV32I pass-through).</item>
+///   <item><b>ROT.T</b> is the cyclic shift (renamed from SC.T; docs/rebel6-isa.md errata E-3) — <b>SC.T</b> is the A extension's store-conditional. The A extension assembles the bare (relaxed) forms; aq/rl suffixed forms are reserved.</item>
+///   <item><b>Zicsr</b> CSR numbers accept standard names (mstatus, mepc, …) or plain numerics; the zimm of the *I forms is written as a number and disassembles as the register name with the same encoding.</item>
 ///   <item><b>12-trit immediates</b> (±265720) throughout I-type and B-type, giving the RV32I-parity binary instructions their full 12-bit immediate range. I-type splits it around the destination register (rs2 slot = imm[11:6], rd2 slot = imm[5:0]); B-type has no destination, so its 12 trits are contiguous across rd1+rd2.</item>
 ///   <item><b>Three-way branches</b> (B-type field read as two 6-trit displacements, ±364 each): <c>BCGS.T rs1, rs2, off1, off2</c> — greater → PC+off1, smaller → PC+off2, equal → PC+1; and <c>BCEG.T rs1, rs2, off1, off2</c> — equal → PC+off1, greater → PC+off2, smaller → PC+1. Two-way branches BEQ.T, BNE.T, BLT.T, BGE.T keep the full 12 trits; BGT.T and BLE.T are operand-swap pseudo-instructions. See docs/rebel6-isa.md errata E-1.</item>
 ///   <item><b>Indexed vs absolute word access</b>: <c>LW.T rd1, rs1, imm12</c> / <c>SW.T rs1, rs2, imm12</c> address rs1+imm12 (I/B-type), while <c>LWA.T rd1, imm24</c> / <c>SWA.T rs1, imm24</c> address imm24 directly with no base register (G/Y-type). The paper names both pairs lw.t/sw.t; the absolute forms are renamed. See docs/rebel6-isa.md errata E-2.</item>
@@ -48,7 +50,8 @@ public static class Rebel6Assembler
             InstructionSet6.DefaultPaddingInstruction,
             InstructionSet6.Patterns,
             (inst, labels, pats, currentIdx) => InstructionEncoder6.Translate(inst, labels, pats, currentIdx),
-            InstructionSet6.AddressSpace);
+            InstructionSet6.AddressSpace,
+            InstructionSet6.RegisterDictionary);
 
     /// <summary>
     /// Translate a single REBEL-6 assembly instruction string into a 32-trit machine code string.

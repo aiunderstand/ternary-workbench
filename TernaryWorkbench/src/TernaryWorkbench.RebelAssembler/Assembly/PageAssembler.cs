@@ -9,7 +9,7 @@ internal static class PageAssembler
     public static IReadOnlyList<AssembledInstruction> AssemblePage(string assembly, bool padPage, string padInstruction, IReadOnlyDictionary<string, InstructionPattern>? patterns = null)
     {
         var instructions = new List<AssembledInstruction>(PageInstructionCount);
-        var parsed = InstructionParser.ParsePage(assembly);
+        var parsed = InstructionParser.ParsePage(assembly, PageInstructionCount, RegisterDictionary);
 
         foreach (var parsedInstruction in parsed.Instructions)
         {
@@ -41,6 +41,7 @@ internal static class PageAssembler
     /// <summary>
     /// Assemble a block of assembly using a custom encoder delegate and address space.
     /// The encoder delegate receives (instruction, labels, patterns, currentInstructionIndex).
+    /// The page capacity is the address space length; the register dictionary guards labels.
     /// </summary>
     public static IReadOnlyList<AssembledInstruction> AssemblePage(
         string assembly,
@@ -48,10 +49,11 @@ internal static class PageAssembler
         string padInstruction,
         IReadOnlyDictionary<string, InstructionPattern> patterns,
         Func<ParsedInstruction, IReadOnlyDictionary<string, LabelDefinition>?, IReadOnlyDictionary<string, InstructionPattern>?, int, string> encoder,
-        string[] addressSpace)
+        string[] addressSpace,
+        IReadOnlyDictionary<string, string> registerDictionary)
     {
         var instructions = new List<AssembledInstruction>(addressSpace.Length);
-        var parsed       = InstructionParser.ParsePage(assembly);
+        var parsed       = InstructionParser.ParsePage(assembly, addressSpace.Length, registerDictionary);
 
         foreach (var parsedInstruction in parsed.Instructions)
         {
@@ -67,7 +69,7 @@ internal static class PageAssembler
         if (!padPage || instructions.Count >= addressSpace.Length)
             return instructions;
 
-        var padMachineCode = encoder(InstructionParser.ParsePage(padInstruction).Instructions[0], null, patterns, 0);
+        var padMachineCode = encoder(InstructionParser.ParsePage(padInstruction, addressSpace.Length, registerDictionary).Instructions[0], null, patterns, 0);
         while (instructions.Count < addressSpace.Length)
         {
             var currentIndex = instructions.Count;

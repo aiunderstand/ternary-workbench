@@ -173,9 +173,19 @@ public class Rebel6AssemblerTests
     [InlineData("OR.T X1, X2, X3")]
     [InlineData("XOR.T X1, X2, X3")]
     [InlineData("AND.T X1, X2, X3")]
-    // Ternary misc (opcode -000)
+    // Ternary compare/unary (opcode -000)
     [InlineData("CMP.T X1, X2, X3")]
     [InlineData("STI.T X1, X2")]
+    [InlineData("MV2.T X1, X2, X3, X4")]
+    [InlineData("MIN.T X1, X2, X3")]
+    [InlineData("MAX.T X1, X2, X3")]
+    [InlineData("SWAP.T X1, X2")]
+    // Ternary System (opcode ++00, zero operands)
+    [InlineData("FENCE.T")]
+    [InlineData("WFI.T")]
+    [InlineData("TRET.T")]
+    [InlineData("EBREAK.T")]
+    [InlineData("ECALL.T")]
     // Ternary I-type (opcode 0000, imm12 split around rd1)
     [InlineData("ADDI.T X1, X2, 3")]
     [InlineData("ADDI.T X1, X2, -265720")]
@@ -185,7 +195,7 @@ public class Rebel6AssemblerTests
     [InlineData("SRIN.T X1, X2, 3")]
     [InlineData("SRIZ.T X1, X2, 3")]
     [InlineData("SRIP.T X1, X2, 3")]
-    [InlineData("SC.T X1, X2, 3")]
+    [InlineData("ROT.T X1, X2, 3")]
     [InlineData("SLTI.T X1, X2, 3")]
     [InlineData("ORI.T X1, X2, 3")]
     [InlineData("XORI.T X1, X2, 3")]
@@ -260,6 +270,57 @@ public class Rebel6AssemblerTests
     [InlineData("SW X1, X2, 0")]
     [InlineData("SH X1, X2, 3")]
     [InlineData("SB X1, X2, -2000")]
+    // M extension (opcode --+0 R-shape; MAC.T in +-+0 D-shape)
+    [InlineData("MUL.T X1, X2, X3")]
+    [InlineData("MULH.T X1, X2, X3")]
+    [InlineData("DIV.T X1, X2, X3")]
+    [InlineData("REM.T X1, X2, X3")]
+    [InlineData("MOD.T X1, X2, X3")]
+    [InlineData("MAC.T X1, X2, X3, X4")]
+    // F extension (arith shares --+0 with M; cmp/cvt in -0+0; FMA in +-+0)
+    [InlineData("FADD.T X1, X2, X3")]
+    [InlineData("FSUB.T X1, X2, X3")]
+    [InlineData("FMUL.T X1, X2, X3")]
+    [InlineData("FDIV.T X1, X2, X3")]
+    [InlineData("FMA.T X1, X2, X3, X4")]
+    [InlineData("FCMP.T X1, X2, X3")]
+    [InlineData("FCVT.W.T X1, X2")]
+    [InlineData("FCVT.T.W X1, X2")]
+    // A extension (opcode -++0; bare/relaxed forms — aq/rl trits zero)
+    [InlineData("LR.T X1, X2")]
+    [InlineData("SC.T X1, X2, X3")]
+    [InlineData("AMOSWAP.T X1, X2, X3")]
+    [InlineData("AMOADD.T X1, X2, X3")]
+    [InlineData("AMOAND.T X1, X2, X3")]
+    [InlineData("AMOOR.T X1, X2, X3")]
+    [InlineData("AMOXOR.T X1, X2, X3")]
+    [InlineData("AMOMIN.T X1, X2, X3")]
+    [InlineData("AMOMAX.T X1, X2, X3")]
+    // P extension (TMAC/TDOT in +-+0 D-shape; scalar reductions in -0+0)
+    [InlineData("TMAC.T X1, X2, X3, X4")]
+    [InlineData("TDOT.T X1, X2, X3")]
+    [InlineData("TSUM.T X1, X2")]
+    [InlineData("QNT.T X1, X2, X3")]
+    [InlineData("HMAX.T X1, X2")]
+    // Ztl extension (TLUT in +-+0; TLUTI + canonical unary gates in 00+0)
+    [InlineData("TLUT.T X1, X2, X3, X4")]
+    [InlineData("TLUTI.T X1, X2, 5")]
+    [InlineData("NTI.T X1, X2")]
+    [InlineData("PTI.T X1, X2")]
+    [InlineData("MTI.T X1, X2")]
+    [InlineData("CYU.T X1, X2")]
+    [InlineData("CYD.T X1, X2")]
+    [InlineData("CYCLEUP.T X1, X2")]
+    // Ztb extension (opcode -0+0)
+    [InlineData("CLZT.T X1, X2")]
+    [InlineData("TCNT.T X1, X2")]
+    // Zicsr extension (opcode ++-0; CSR number in the imm12 field)
+    [InlineData("CSRRW X5, 768, X6")]
+    [InlineData("CSRRS X5, 772, X6")]
+    [InlineData("CSRRC X5, 773, X6")]
+    [InlineData("CSRRWI X5, 768, 5")]
+    [InlineData("CSRRSI X5, 768, 3")]
+    [InlineData("CSRRCI X5, 768, 1")]
     public void RoundTrip_Assemble_Disassemble_Reassemble_SameMachineCode(string assembly)
     {
         var machineCode  = Asm.Translate(assembly);
@@ -714,6 +775,251 @@ public class Rebel6AssemblerTests
         ternaryAdd[28..32].Should().Be("--00", because: "ADD.T uses ternary-base opcode --00");
         binaryAdd[28..32].Should().Be("---0",  because: "ADD uses binary-base opcode ---0");
         ternaryAdd.Should().NotBe(binaryAdd);
+    }
+
+    // =========================================================================
+    // 13. Spec-upgrade instructions: base additions, System group, extensions
+    //     (docs/rebel6-isa.md, docs/rebel6-extensions.md, docs/rebel6-platform.md)
+    // =========================================================================
+
+    [Theory]
+    // Base additions
+    [InlineData("MIN.T X1, X2, X3",          "0000+-0000+000000+000000000--000")] // -000 func 000-
+    [InlineData("MAX.T X1, X2, X3",          "0000+-0000+000000+000000000+-000")] // -000 func 000+
+    [InlineData("MV2.T X1, X2, X3, X4",      "0000+00000++00000+0000+-00-+-000")] // rs1=X3 rs2=X4 rd1=X1 rd2=X2
+    [InlineData("ROT.T X1, X2, 3",           "0000+-00000000000+0000+000-+0000")] // cyclic shift, selector zero
+    // System group: all four operand slots zero, funcs match R2v2's ++ group
+    [InlineData("ECALL.T",                   "00000000000000000000000000++++00")]
+    [InlineData("TRET.T",                    "00000000000000000000000000+-++00")]
+    // M / F share opcode --+0
+    [InlineData("MUL.T X1, X2, X3",          "0000+-0000+000000+00000000----+0")]
+    [InlineData("FADD.T X1, X2, X3",         "0000+-0000+000000+00000000-+--+0")]
+    // A extension (bare/relaxed: rd2 = aq/rl trits zero)
+    [InlineData("LR.T X1, X2",               "0000+-00000000000+00000000---++0")]
+    [InlineData("SC.T X1, X2, X3",           "0000+-0000+000000+00000000-0-++0")]
+    [InlineData("AMOSWAP.T X1, X2, X3",      "0000+-0000+000000+00000000-+-++0")]
+    // D-shape extension ops (rd2 slot = rs3 / truth table)
+    [InlineData("TMAC.T X1, X2, X3, X4",     "0000+-0000+000000+0000++000-+-+0")]
+    [InlineData("TLUT.T X1, X2, X3, X4",     "0000+-0000+000000+0000++00--+-+0")]
+    // Ztl canonical unary gate: table pinned in rd2 slot (imm[5:0])
+    [InlineData("NTI.T X1, X2",              "0000+-00000000000+000--+00--00+0")]
+    // P / Ztb scalar unaries in -0+0
+    [InlineData("TSUM.T X1, X2",             "0000+-00000000000+000000000+-0+0")]
+    [InlineData("CLZT.T X1, X2",             "0000+-00000000000+000000000--0+0")]
+    [InlineData("FCVT.W.T X1, X2",           "0000+-00000000000+00000000-0-0+0")]
+    // Zicsr: CSR number 768 (mstatus) rides the imm12 field split around rd1
+    [InlineData("CSRRW X5, 768, X6",         "000+-000000+000+--00+++000--++-0")]
+    [InlineData("CSRRWI X5, 768, 5",         "000+--00000+000+--00+++0000-++-0")]
+    public void SpecUpgrade_Translate_ProducesMachineCode(string assembly, string expected)
+    {
+        Asm.Translate(assembly).Should().Be(expected,
+            because: $"'{assembly}' has a pinned golden encoding");
+    }
+
+    [Theory]
+    [InlineData("SWAP.T X1, X2",     "MV2.T X1, X2, X2, X1")]
+    [InlineData("CYCLEUP.T X1, X2",  "CYU.T X1, X2")]
+    [InlineData("TDOT.T X1, X2, X3", "TMAC.T X1, X2, X3, X0")]
+    public void SpecUpgrade_PseudoForms_EncodeAsTheirExpansion(string pseudo, string expansion)
+    {
+        Asm.Translate(pseudo).Should().Be(Asm.Translate(expansion),
+            because: $"'{pseudo}' must encode exactly as '{expansion}'");
+    }
+
+    [Fact]
+    public void SwapT_DisassemblesAsMv2()
+    {
+        // SWAP.T is an operand-rewrite pseudo (like BGT.T): the architectural dual move
+        // with crossed operands is the canonical disassembly.
+        Asm.Disassemble(Asm.Translate("SWAP.T X1, X2"))
+            .Should().Be("MV2.T X1, X2, X2, X1");
+    }
+
+    [Fact]
+    public void TdotT_IsCanonicalWhenRs3IsZero()
+    {
+        // TDOT.T pins rd2 (rs3) to X0, so it outscores TMAC.T on such words —
+        // the same mechanism by which NOP.T outscores ADDI.T.
+        Asm.Disassemble(Asm.Translate("TMAC.T X1, X2, X3, X0"))
+            .Should().Be("TDOT.T X1, X2, X3");
+        Asm.Disassemble(Asm.Translate("TMAC.T X1, X2, X3, X4"))
+            .Should().StartWith("TMAC.T", because: "a non-zero rs3 is a genuine TMAC.T");
+    }
+
+    [Fact]
+    public void CanonicalGateTables_DisassembleAsTheirGateNames()
+    {
+        // A TLUTI.T carrying a canonical 3-trit table is printed as the gate name;
+        // a non-canonical table stays TLUTI.T.
+        Asm.Disassemble(Asm.Translate("TLUTI.T X1, X2, 5")).Should().StartWith("TLUTI.T");
+
+        foreach (var gate in new[] { "NTI.T", "PTI.T", "MTI.T", "CYU.T", "CYD.T" })
+            Asm.Disassemble(Asm.Translate($"{gate} X1, X2"))
+                .Should().Be($"{gate} X1, X2", because: $"{gate}'s canonical table wins the pattern score");
+    }
+
+    [Fact]
+    public void CsrNames_ResolveToTheirStandardNumbers()
+    {
+        Asm.Translate("CSRRW X5, mstatus, X6").Should().Be(Asm.Translate("CSRRW X5, 768, X6"));
+        Asm.Translate("CSRRS X5, mepc, X6").Should().Be(Asm.Translate("CSRRS X5, 833, X6"));
+        Asm.Translate("CSRRC X5, mhartid, X0").Should().Be(Asm.Translate("CSRRC X5, 3860, X0"));
+    }
+
+    [Fact]
+    public void SystemInstructions_AllOperandSlotsZero()
+    {
+        foreach (var mnemonic in new[] { "FENCE.T", "WFI.T", "TRET.T", "EBREAK.T", "ECALL.T" })
+        {
+            var mc = Asm.Translate(mnemonic);
+            mc[..24].Should().Be(new string('0', 24),
+                because: $"{mnemonic} takes no operands, so rs1/rs2/rd1/rd2 are all zero");
+            mc[28..32].Should().Be("++00", because: "System instructions live in opcode ++00");
+        }
+    }
+
+    [Fact]
+    public void SystemFuncs_MatchRebel2v2ControlGroup()
+    {
+        // Continuity: same lower-func assignments as REBEL-2 V2.2's ++ group,
+        // with TRET.T taking its predecessor IRET.T's slot.
+        Asm.Translate("FENCE.T")[24..28].Should().Be("00-0");
+        Asm.Translate("WFI.T")[24..28].Should().Be("00-+");
+        Asm.Translate("TRET.T")[24..28].Should().Be("00+-");
+        Asm.Translate("EBREAK.T")[24..28].Should().Be("00+0");
+        Asm.Translate("ECALL.T")[24..28].Should().Be("00++");
+    }
+
+    [Fact]
+    public void AtomicInstructions_AqRlTritsAreZeroInBareForm()
+    {
+        foreach (var asm in new[]
+        {
+            "LR.T X1, X2", "SC.T X1, X2, X3", "AMOSWAP.T X1, X2, X3", "AMOADD.T X1, X2, X3",
+            "AMOAND.T X1, X2, X3", "AMOOR.T X1, X2, X3", "AMOXOR.T X1, X2, X3",
+            "AMOMIN.T X1, X2, X3", "AMOMAX.T X1, X2, X3",
+        })
+        {
+            var mc = Asm.Translate(asm);
+            mc[18..24].Should().Be("000000",
+                because: $"'{asm}' assembles the bare (relaxed) form — aq/rl trits in the rd2 slot are zero");
+            mc[28..32].Should().Be("-++0", because: "the A extension lives in opcode -++0");
+        }
+    }
+
+    [Fact]
+    public void ScT_IsStoreConditional_NotTheCyclicShift()
+    {
+        // Errata E-3: SC.T now names the A extension's store-conditional; the
+        // cyclic shift is ROT.T. Same mnemonic, different world.
+        var storeConditional = Asm.Translate("SC.T X1, X2, X3");
+        var rotate           = Asm.Translate("ROT.T X1, X2, 3");
+
+        storeConditional[28..32].Should().Be("-++0", because: "SC.T is an A-extension instruction");
+        rotate[28..32].Should().Be("0000", because: "ROT.T keeps the old cyclic shift encoding");
+        rotate[24..28].Should().Be("00-+", because: "ROT.T keeps func -+ (unchanged by the rename)");
+    }
+
+    // =========================================================================
+    // 14. Pattern-table integrity (enumerates InstructionSet6 via InternalsVisibleTo)
+    // =========================================================================
+
+    [Fact]
+    public void PatternTable_EncodingSignaturesAreUnique()
+    {
+        // Signature = opcode + func + every pinned non-operand slot value. Two patterns
+        // with the same signature would be indistinguishable to the disassembler.
+        // (Shift-fill families and pseudo patterns differ in pinned values, so even
+        // they have distinct signatures.)
+        var patterns = TernaryWorkbench.RebelAssembler.Assembly.InstructionSet6.Patterns;
+
+        var signatures = patterns.Values
+            .Select(p =>
+            {
+                var defaults = p.Defaults is null
+                    ? ""
+                    : string.Join("|", p.Defaults.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                                                 .Select(kv => $"{kv.Key.ToLowerInvariant()}={kv.Value}"));
+                return $"{p.Opcode}#{defaults}#{string.Join(",", p.AssemblyOperands)}";
+            })
+            .ToList();
+
+        signatures.Should().OnlyHaveUniqueItems(
+            because: "every pattern must be uniquely decodable from opcode + pinned fields + operand shape");
+    }
+
+    [Fact]
+    public void PatternTable_OpcodesRespectTheGroupRules()
+    {
+        var patterns = TernaryWorkbench.RebelAssembler.Assembly.InstructionSet6.Patterns;
+
+        foreach (var p in patterns.Values)
+        {
+            p.Opcode.Should().MatchRegex("^[-+0]{2}$|^[-+0]{4}$");
+            if (p.Opcode.Length == 4)
+                p.Opcode[^1].Should().Be('0', because: "4-trit opcodes end in trit 0");
+            else
+                p.Opcode[^1].Should().NotBe('0', because: "2-trit (G/Y) opcodes end in a non-zero trit");
+        }
+
+        patterns.Count.Should().Be(127,
+            because: "55 base ternary + 27 binary + 37 extension + 8 pseudo patterns (NOP, MV, TDOT, NTI, PTI, MTI, CYU, CYD)");
+    }
+
+    // =========================================================================
+    // 15. Page capacity and label/register collision (parser, REBEL-6 rules)
+    // =========================================================================
+
+    [Fact]
+    public void AssembleInstructions_MoreThanNineInstructions_Succeeds()
+    {
+        // The parser previously applied REBEL-2's 9-instruction page cap to REBEL-6;
+        // a REBEL-6 page holds 729 instructions.
+        var source = string.Join('\n', Enumerable.Repeat("NOP.T", 12));
+
+        var result = Asm.AssembleInstructions(source);
+
+        result.Should().HaveCount(12);
+    }
+
+    [Fact]
+    public void Label_CollidingWithRebel6RegisterName_IsRejected()
+    {
+        // X100 is a real REBEL-6 register (it was not one in REBEL-2, whose dictionary
+        // the parser used to consult).
+        var act = () => Asm.AssembleInstructions("X100: NOP.T");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*conflicts with a register name*");
+    }
+
+    // =========================================================================
+    // 16. CSV validation parity: REBEL-6 rows are checked like REBEL-2 rows
+    // =========================================================================
+
+    [Fact]
+    public void Csv_ValidRebel6Row_Accepted()
+    {
+        var records = new List<AssemblyRecord>
+        {
+            new("MUL.T X1, X2, X3", Asm.Translate("MUL.T X1, X2, X3"), Isa.Rebel6, AssemblyDirection.Assemble),
+        };
+
+        var (validRows, errors) = AssemblyCsvSerializer.Deserialize(AssemblyCsvSerializer.Serialize(records));
+
+        errors.Should().BeEmpty();
+        validRows.Should().ContainSingle().Which.Isa.Should().Be(Isa.Rebel6);
+    }
+
+    [Fact]
+    public void Csv_TenTritCodeMarkedRebel6_Rejected()
+    {
+        var csv = AssemblyCsvSerializer.Header + "\n" +
+                  "ADD.T X1, X2, X3;--+-+00+00;REBEL-6;assemble";
+
+        var (validRows, errors) = AssemblyCsvSerializer.Deserialize(csv);
+
+        validRows.Should().BeEmpty();
+        errors.Should().ContainSingle().Which.Message.Should().Contain("32-trit");
     }
 
 }

@@ -61,7 +61,8 @@ public class Rebel2AssemblerTests
     [InlineData("SRIN.T X1, X2, ++",      "0++-++0++-")]
     [InlineData("SRIZ.T X1, X2, ++",      "0++-++0++0")]
     [InlineData("SRIP.T X1, X2, ++",      "0++-++0+++")]
-    [InlineData("SC.T X1, X2, ++",        "0++-++0+00")]
+    [InlineData("ROT.T X1, X2, ++",       "0++-++0+00")]
+    [InlineData("SC.T X1, X2, ++",        "0++-++0+00")] // deprecated alias of ROT.T
     // COMP
     [InlineData("CMPW.T X1, X2, X3",      "+-+-+00+00")]
     [InlineData("CMPT.T X1, X2, X3",      "+-+-+00+--")]
@@ -124,7 +125,7 @@ public class Rebel2AssemblerTests
     [InlineData("0++-++0++-",  "SRIN.T X1, X2, X4")]
     [InlineData("0++-++0++0",  "SRIZ.T X1, X2, X4")]
     [InlineData("0++-++0+++",  "SRIP.T X1, X2, X4")]
-    [InlineData("0++-++0+00",  "SC.T X1, X2, X4")]
+    [InlineData("0++-++0+00",  "ROT.T X1, X2, X4")]
     [InlineData("+-+-+00+00",  "CMPW.T X1, X2, X3")]
     [InlineData("+-+-+00+--",  "CMPT.T X1, X2, X3")]
     [InlineData("+0+0++0++-",  "BCEG.T X1, X2, X3, X4")]
@@ -168,6 +169,7 @@ public class Rebel2AssemblerTests
     [InlineData("SRIN.T X1, X2, ++")]
     [InlineData("SRIZ.T X1, X2, ++")]
     [InlineData("SRIP.T X1, X2, ++")]
+    [InlineData("ROT.T X1, X2, ++")]
     [InlineData("SC.T X1, X2, ++")]
     [InlineData("CMPW.T X1, X2, X3")]
     [InlineData("CMPT.T X1, X2, X3")]
@@ -624,5 +626,20 @@ public class Rebel2AssemblerTests
     public void AssemblyDirection_Values_ExistAndDistinct()
     {
         AssemblyDirection.Assemble.Should().NotBe(AssemblyDirection.Disassemble);
+    }
+
+    // =========================================================================
+    // SC.T -> ROT.T rename (docs/rebel6-isa.md errata E-3, family-wide)
+    // =========================================================================
+
+    [Fact]
+    public void ScT_IsDeprecatedAliasOfRotT()
+    {
+        var viaAlias = Asm.Translate("SC.T X1, X2, ++");
+
+        viaAlias.Should().Be(Asm.Translate("ROT.T X1, X2, ++"),
+            because: "SC.T is a deprecated alias with an identical encoding");
+        Asm.Disassemble(viaAlias).Should().StartWith("ROT.T",
+            because: "disassembly always prints the canonical mnemonic");
     }
 }

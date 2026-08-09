@@ -598,7 +598,9 @@ static void PrintRebel6Help()
         INPUT
           <assembly>  One instruction per line, up to 729 instructions (one ROM page).
                       Labels, comments (#, ;, $, //), and annotations are supported.
-                      Both ternary (.t) and binary (RV32I-compatible) mnemonics are supported.
+                      Ternary (.t), binary (RV32I-compatible), and extension mnemonics
+                      (M, A, F, P, Ztl, Ztb, Zicsr) are all assemblable; CSR operands
+                      accept standard names (mstatus, mepc, ...) or numbers.
                       Pass '-' to read from stdin.
           <code>      A 32-character string of balanced-ternary trits (+, -, 0).
                       Pass '-' to read one code per line from stdin.
@@ -613,6 +615,9 @@ static void PrintRebel6Help()
           twb rebel6 asm "addi.t X1, X2, 5"
           twb rebel6 asm "lwa.t X1, 42"
           twb rebel6 asm "add X1, X2, X3"
+          twb rebel6 asm "mul.t X1, X2, X3"
+          twb rebel6 asm "lr.t X1, X2"
+          twb rebel6 asm "csrrw X5, mstatus, X6"
           twb rebel6 dis 000000000000000000000000000000++
           printf 'add.t X1, X2, X3\nnop.t\n' | twb rebel6 asm -
         """);

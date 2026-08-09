@@ -8,7 +8,7 @@ internal static class InstructionEncoder6
     /// <summary>Translate a single-instruction string to a 32-trit machine code string.</summary>
     public static string Translate(string instruction, IReadOnlyDictionary<string, InstructionPattern>? patterns = null)
     {
-        var parsed = InstructionParser.ParsePage(instruction);
+        var parsed = InstructionParser.ParsePage(instruction, PageInstructionCount, RegisterDictionary);
         if (parsed.Instructions.Count != 1)
             throw new InvalidOperationException("Translate expects exactly one instruction.");
         return Translate(parsed.Instructions[0], parsed.Labels, patterns);
@@ -194,6 +194,11 @@ internal static class InstructionEncoder6
         IReadOnlyDictionary<string, LabelDefinition>? labels, int currentIndex)
     {
         var token = operand.Trim();
+
+        // CSR names (Zicsr): resolve before label lookup so `csrrw X5, mstatus, X6`
+        // works without a label named mstatus ever shadowing it.
+        if (CsrNames.TryGetValue(token, out var csrNumber))
+            return ToBalancedTernaryN(csrNumber, 12);
 
         if (labels != null && labels.TryGetValue(token, out var label))
         {

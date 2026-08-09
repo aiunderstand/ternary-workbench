@@ -5,9 +5,18 @@ namespace TernaryWorkbench.RebelAssembler.Assembly;
 
 internal static class InstructionParser
 {
-    public static ParsedPage ParsePage(string assembly)
+    /// <summary>
+    /// Parse a page of assembly into instructions and labels. The page capacity and the
+    /// register dictionary (used to reject labels that shadow register names) are ISA-specific,
+    /// so callers supply them: REBEL-2/2v2 pass 9 + the 9-register dictionary, REBEL-6 passes
+    /// 729 + the 729-register dictionary.
+    /// </summary>
+    public static ParsedPage ParsePage(
+        string assembly,
+        int maxInstructions,
+        IReadOnlyDictionary<string, string> registerDictionary)
     {
-        var instructions = new List<ParsedInstruction>(PageInstructionCount);
+        var instructions = new List<ParsedInstruction>(maxInstructions);
         var labels = new Dictionary<string, LabelDefinition>(StringComparer.OrdinalIgnoreCase);
         var pendingLabels = new List<(string Name, int LineNumber)>();
         var lines = assembly.Split(NewLineSeparators, StringSplitOptions.None);
@@ -31,7 +40,7 @@ internal static class InstructionParser
                 if (!IsValidLabel(label))
                     throw new InvalidOperationException(
                         $"Invalid label '{label}' on line {lineNumber}. Labels must start with a letter or underscore and contain only letters, digits, or underscores.");
-                if (RegisterDictionary.ContainsKey(label))
+                if (registerDictionary.ContainsKey(label))
                     throw new InvalidOperationException($"Label '{label}' on line {lineNumber} conflicts with a register name.");
 
                 if (labels.TryGetValue(label, out var existingLabel))
@@ -58,8 +67,8 @@ internal static class InstructionParser
                 throw new InvalidOperationException($"Missing mnemonic on line {lineNumber}.");
 
             instructions.Add(new ParsedInstruction(lineNumber, line, parts));
-            if (instructions.Count > PageInstructionCount)
-                throw new InvalidOperationException("Cannot encode more than 9 instructions in a single ROM page.");
+            if (instructions.Count > maxInstructions)
+                throw new InvalidOperationException($"Cannot encode more than {maxInstructions} instructions in a single ROM page.");
         }
 
         if (pendingLabels.Count > 0)

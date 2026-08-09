@@ -163,6 +163,32 @@ public static class AssemblyCsvSerializer
                 }
             }
 
+            // Validate machine code format and opcode recognition (REBEL-6: 32 trits)
+            if (string.Equals(isaField, Isa.Rebel6, StringComparison.OrdinalIgnoreCase))
+            {
+                if (machineField.Length != 32 || !machineField.All(ch => ch is '+' or '-' or '0'))
+                {
+                    errors.Add(new CsvParseError(
+                        fileLineNumber,
+                        rawLine,
+                        $"Machine code \"{machineField}\" is not a valid 32-trit {isaField} instruction."));
+                    continue;
+                }
+
+                try
+                {
+                    InstructionDisassembler6.Disassemble(machineField, InstructionSet6.Patterns);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    errors.Add(new CsvParseError(
+                        fileLineNumber,
+                        rawLine,
+                        $"Machine code \"{machineField}\" could not be disassembled: {ex.Message}"));
+                    continue;
+                }
+            }
+
             validRows.Add(new AssemblyRecord(assemblyField, machineField, isaField, direction));
         }
 

@@ -98,7 +98,11 @@ internal static class InstructionSet2v2
             { "SLIN.T",   new InstructionPattern("SLIN.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "--" } }) },
             { "SLIZ.T",   new InstructionPattern("SLIZ.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "-0" } }) },
             { "SLIP.T",   new InstructionPattern("SLIP.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "-+" } }) },
-            { "SC.T",     new InstructionPattern("SC.T",     "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "00" } }) },
+            // Cyclic shift, renamed SC.T -> ROT.T (REBEL-6 A-extension reclaims SC.T for
+            // store-conditional; see docs/rebel6-isa.md errata E-3). SC.T stays as a deprecated
+            // alias; ROT.T is declared first so tie-break-by-insertion-order disassembles to it.
+            { "ROT.T",    new InstructionPattern("ROT.T",    "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "00" } }) },
+            { "SC.T",     new InstructionPattern("ROT.T",    "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "00" } }) },
             { "SRIN.T",   new InstructionPattern("SRIN.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+-" } }) },
             { "SRIZ.T",   new InstructionPattern("SRIZ.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "+0" } }) },
             { "SRIP.T",   new InstructionPattern("SRIP.T",   "0+", [Rd1, Rs1, Imm], new Dictionary<string, string> { { Rd2, "++" } }) },
