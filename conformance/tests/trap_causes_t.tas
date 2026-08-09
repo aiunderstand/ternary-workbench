@@ -1,0 +1,88 @@
+# Trap cause-code cross-check against the PLATFORM table
+# (rebel6-platform.md "Balanced cause codes"), not the ISA annotations:
+#   ecall from U -> -7, from S -> -8, from M -> -9, ebreak -> -10
+# Also asserts the exception epc rule (mepc points AT the trapping instruction),
+# TRET.T resume, and the M -> S -> U descent through mstatus.MPP / sstatus.SPP.
+# Semihosting (rebel6-abi.md) is ECALL.T from M with a7 in {63, 64, 93, 214},
+# serviced directly by the simulator; every other ECALL.T - any a7 from S or U,
+# a non-semihosting a7 from M - takes the architectural environment-call trap.
+# Pass: exit 0. Fail: exit a0 = index of failed check (9 = trap-count mismatch).
+	.text
+main:
+	# install the trap handler (direct mode - mstatus.MVECT stays 0)
+	li.t t0, handler
+	add.t mtvec, t0, zero
+	# s2 = expected cause, s3 = expected mepc for the next trap
+	# check 1: EBREAK.T -> cause -10, mepc = address of the ebreak
+	li.t a0, 1
+	li.t s2, -10
+	li.t s3, ebreak_site
+ebreak_site:
+	ebreak.t
+	# check 2: ECALL.T from M with a non-semihosting call number -> cause -9
+	li.t a0, 2
+	li.t s2, -9
+	li.t s3, mcall_site
+	li.t a7, 17
+mcall_site:
+	ecall.t
+	# check 3: descend M -> S (mstatus.MPP = 0 = S, mepc = s_code, tret.t);
+	# ECALL.T from S -> cause -8, whatever a7 holds
+	li.t a0, 3
+	li.t s2, -8
+	li.t s3, scall_site
+	li.t t0, 0            # mstatus write: MPP (trit 3) = 0 = S, all other fields 0
+	add.t mstatus, t0, zero
+	li.t t0, s_code
+	add.t mepc, t0, zero
+	tret.t
+s_code:
+	# in S mode; a7 = 93 must NOT reach semihosting below M - it must trap -8
+	li.t a7, 93
+scall_site:
+	ecall.t
+	# check 4: descend S -> U through the S bank (sstatus.SPP = '-' = U,
+	# sepc = u_code, tret.t from S restores from the S bank); ECALL.T from U -> -7
+	li.t a0, 4
+	li.t s2, -7
+	li.t s3, ucall_site
+	li.t t0, -729         # sstatus write: SPP (trit 6) = '-' = U
+	add.t sstatus, t0, zero
+	li.t t0, u_code
+	add.t sepc, t0, zero
+	tret.t
+u_code:
+ucall_site:
+	ecall.t
+	# all checks passed - semihosting exit is M-only, so flag the handler (which
+	# runs in M) to perform the exit
+	li.t s5, 1
+	ecall.t
+	# not reached
+	jal.t zero, ucall_site
+
+# Handler (M mode): s5 set means "all checks done"; otherwise verify cause and
+# mepc (the exception rule: mepc points AT the trapping instruction), count the
+# verified trap in s6, then resume past the trapping instruction via TRET.T.
+handler:
+	bne.t s5, zero, done
+	add.t t5, mcause, zero
+	bne.t t5, s2, fail
+	add.t t5, mepc, zero
+	bne.t t5, s3, fail
+	addi.t s6, s6, 1
+	addi.t t5, t5, 1
+	add.t mepc, t5, zero
+	tret.t
+done:
+	# exactly 4 verified traps (-10, -9, -8, -7) must have been taken - guards
+	# against an ECALL.T being serviced or skipped instead of trapping
+	li.t a0, 9
+	li.t t1, 4
+	bne.t s6, t1, fail
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
