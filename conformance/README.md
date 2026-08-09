@@ -51,7 +51,7 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
 
 ## Coverage
 
-All 36 tests pass against the R2R reference simulator as of this
+All 37 tests pass against the R2R reference simulator as of this
 commit.
 
 | Test | Instructions | Directed edge cases |
@@ -71,10 +71,11 @@ commit.
 | `majv_t` | `MAJV.T` | per-trit majority; two-equal-words dominance; all-distinct lane → 0 (median reading, see note below) |
 | `minv_t` | `MINV.T` | minority = negated majority, cross-checked against `sti(majv)` |
 | `li2_t` | `LI2.T` | 6-trit immediate extremes ±364 |
-| `shifts_imm_left_t` | `SLIN.T`, `SLIZ.T`, `SLIP.T` | each fill lands in **every** vacated trit; shift-by-0 identity |
-| `shifts_imm_right_t` | `SRIN.T`, `SRIZ.T`, `SRIP.T` | fills land in vacated top trits (`3^22`, `3^23` terms); shift-by-0 identity |
-| `shifts_reg_t` | `SLN.T`, `SLZ.T`, `SLP.T`, `SRN.T`, `SRZ.T`, `SRP.T` | register amounts, all six fills, amount-0 identity |
-| `rot_t` | `ROT.T` | `rot 24` = identity; `rot k` then `rot 24−k` = identity; `rot k` then `rot −k` = identity (mod-24 negative amounts); MST↔LST wraparound both directions |
+| `shi_fills_t` | `SHIN.T`, `SHIZ.T`, `SHIP.T` | signed amounts both directions: each fill lands in **every** vacated trit for `k > 0` (low trits) and `k < 0` (`3^22`, `3^23` terms); `k = 0` identity; `±24` and over-range `±30` all-fill |
+| `sh_reg_t` | `SHN.T`, `SHZ.T`, `SHP.T` | register amounts both signs, all three fills, amount-0 identity; **low-4-trit rule** proven by rs2 = 79 (positive word, low 4 trits = −2) and rs2 = 408 (low 4 trits = +3 under nonzero higher trits); register `|k| ≥ 24` all-fill |
+| `rot_t` | `ROT.T` | signed amount mod 24: `rot ±24` = identity; `rot k` then `rot 24−k` = identity; `rot k` then `rot −k` = identity; `rot −k` = `rot 24−k`; MST↔LST wraparound both directions |
+| `rotr_t` | `ROTR.T` | register-amount rotate, signed mod 24: agreement with `ROT.T` for `k = +5` and `k = −7`; `rotr k` then `rotr −k` = identity; `rotr 24` = identity; directed ±1 wraparound |
+| `legacy_shift_aliases_t` | deprecated `SLIZ.T`, `SRIZ.T`, `SLZ.T`, `SRZ.T` | deprecated-alias regression guard only (aliases of `SHIZ.T`/`SHZ.T` with negated amounts for the right forms) — delete with the aliases |
 | `lw_sw_t` | `LW.T`, `SW.T` | word round-trips incl. `MAX`/`MIN`, adjacent words independent |
 | `lh_lt_narrow_t` | `LH.T`, `LT.T`, `SH.T`, `ST.T` | narrow loads zero-pad (negative values survive exactly); narrow stores truncate balanced (tryte mod 729 → ±364, halfword mod 3¹² → ±265720); tryte store touches only its tryte; little-endian tryte order |
 | `lwa_swa_t` | `LWA.T`, `SWA.T` | absolute round-trips, agreement with register-indirect `LW.T` |
@@ -140,11 +141,15 @@ suite, each verified by experiment:
    exit 134 rather than a check index. `ebreak.t`/`tret.t` parse but
    abort as unimplemented traps.
 
-## Provisional: shift tests
+## Shift tests: signed-shift design ratified
 
-`shifts_imm_left_t`, `shifts_imm_right_t` and `shifts_reg_t` encode
-the current spec semantics (unsigned shift amount per direction, fill
-trit N/Z/P). They are **provisional pending the signed-shift-amount
-proposal** (`REBEL-toolchain/rebel6-signed-shifts-proposal.md`); if it
-is adopted, the expected values for negative/over-range amounts change
-and these three files must be revisited.
+The shift tests encode the **ratified signed-shift design** (Option A
+full collapse plus `ROTR.T`, accepted 2026-08-09 — see
+`REBEL-toolchain/rebel6-signed-shifts-proposal.md`): one shift family
+`SH<f>.T`/`SHI<f>.T` with a signed amount whose sign is the direction
+(`k > 0` toward MST, `k < 0` toward LST, `k = 0` identity,
+`|k| ≥ 24` all-fill), register amounts read from the low 4 trits of
+rs2 (±40), and rotates (`ROT.T`/`ROTR.T`) signed mod 24. The old
+per-direction spellings (`SL*`/`SLI*`/`SR*`/`SRI*`) survive in the
+simulator as deprecated aliases; `legacy_shift_aliases_t` guards them
+and is deleted when they are removed.

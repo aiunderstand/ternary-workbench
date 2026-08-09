@@ -1,4 +1,6 @@
-# ROT.T conformance: cyclic shift mod 24, no fill, + = toward MST
+# ROT.T conformance: cyclic shift, signed amount mod 24, no fill,
+# + = toward MST, - = toward LST (signed-shift design, see
+# REBEL-toolchain/rebel6-signed-shifts-proposal.md).
 # Pass: exit 0. Fail: exit a0 = index of failed check.
 	.text
 main:
@@ -33,6 +35,16 @@ main:
 	li.t t0, 94143178827
 	rot.t t1, t0, 1
 	li.t t2, 1
+	bne.t t1, t2, fail
+	# check 7: rot by -24 is the identity too (negative amount mod 24)
+	li.t a0, 7
+	li.t t0, 123456
+	rot.t t1, t0, -24
+	bne.t t1, t0, fail
+	# check 8: rot -k equals rot 24-k (k = 7, signed mod-24 equivalence)
+	li.t a0, 8
+	rot.t t1, t0, -7
+	rot.t t2, t0, 17
 	bne.t t1, t2, fail
 	# all checks passed
 	li.t a7, 93

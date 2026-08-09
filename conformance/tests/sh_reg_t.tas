@@ -1,0 +1,89 @@
+# SHN.T / SHZ.T / SHP.T conformance: signed register-amount shifts
+# (ratified signed-shift design, Option A - see
+# REBEL-toolchain/rebel6-signed-shifts-proposal.md).
+# The amount is the balanced value of the low 4 trits of rs2 (+-40);
+# its sign is the direction (+ toward MST, - toward LST).
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: shz 1 by reg +3 = 27
+	li.t a0, 1
+	li.t t0, 1
+	li.t t1, 3
+	shz.t t2, t0, t1
+	li.t t3, 27
+	bne.t t2, t3, fail
+	# check 2: shz 27 by reg -3 = 1
+	li.t a0, 2
+	li.t t0, 27
+	li.t t1, -3
+	shz.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 3: shn 1 by reg +1 = 2 and shp 1 by reg +1 = 4
+	li.t a0, 3
+	li.t t0, 1
+	li.t t1, 1
+	shn.t t2, t0, t1
+	li.t t3, 2
+	bne.t t2, t3, fail
+	shp.t t2, t0, t1
+	li.t t3, 4
+	bne.t t2, t3, fail
+	# check 4: shn 3 by reg -1 = 1 - 3^23 and shp 3 by reg -1 = 1 + 3^23
+	li.t a0, 4
+	li.t t0, 3
+	li.t t1, -1
+	shn.t t2, t0, t1
+	li.t t3, -94143178826
+	bne.t t2, t3, fail
+	shp.t t2, t0, t1
+	li.t t3, 94143178828
+	bne.t t2, t3, fail
+	# check 5: register amount 0 is the identity for all three fills
+	li.t a0, 5
+	li.t t0, -777
+	shn.t t2, t0, zero
+	bne.t t2, t0, fail
+	shz.t t2, t0, zero
+	bne.t t2, t0, fail
+	shp.t t2, t0, zero
+	bne.t t2, t0, fail
+	# check 6: only the low 4 trits of rs2 are read - negative low trits
+	# under nonzero higher trits. 79 = 3^4 - 2, trits (+,-,0,0,+) LSB
+	# first: the word is positive but its low 4 trits are -2, so
+	# shz 9 by reg 79 shifts toward the LST: 9 / 3^2 = 1
+	li.t a0, 6
+	li.t t0, 9
+	li.t t1, 79
+	shz.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 7: low-4-trit rule, positive amount under nonzero higher
+	# trits: 408 has low 4 trits +3, so shz 1 by reg 408 = 27
+	li.t a0, 7
+	li.t t0, 1
+	li.t t1, 408
+	shz.t t2, t0, t1
+	li.t t3, 27
+	bne.t t2, t3, fail
+	# check 8: register amounts with |k| >= 24 are all-fill
+	li.t a0, 8
+	li.t t0, 123456
+	li.t t1, 24
+	shz.t t2, t0, t1
+	bne.t t2, zero, fail
+	shn.t t2, t0, t1
+	li.t t3, -141214768240
+	bne.t t2, t3, fail
+	li.t t1, -24
+	shp.t t2, t0, t1
+	li.t t3, 141214768240
+	bne.t t2, t3, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
