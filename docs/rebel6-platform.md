@@ -364,7 +364,7 @@ access, cause −3/−4), not implementation-defined; unpopulated MMIO addresses
 least-negative end of the region. Slot *n* spans addresses
 `MMIO_TOP − (n+1)·6561 + 1 … MMIO_TOP − n·6561` with `MMIO_TOP = −47,071,589,414`; a device's
 registers sit at ascending tryte offsets from its slot base (the slot's lowest address). Example:
-slot 0 (CLINT) spans −47,071,596,974 … −47,071,589,414.
+slot 0 (CLINT) spans −47,071,595,974 … −47,071,589,414.
 
 | Slot | Device | | Slot | Device |
 |------|--------|-|------|--------|
