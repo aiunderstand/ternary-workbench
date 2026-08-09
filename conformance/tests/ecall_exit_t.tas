@@ -1,0 +1,36 @@
+# ECALL.T conformance: semihosting write (a7=64) returns the tryte
+# count in a0, and exit (a7=93) halts reporting a0 as the status.
+# Prints "OK\n" on the way out.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s0, buf
+	# 'O'
+	li.t t0, 79
+	st.t s0, t0, 0
+	# 'K'
+	li.t t0, 75
+	st.t s0, t0, 1
+	# '\n'
+	li.t t0, 10
+	st.t s0, t0, 2
+	li.t a7, 64
+	li.t a0, 1
+	li.t a1, buf
+	li.t a2, 3
+	ecall.t
+	# check 1: write returned 3 (trytes written) in a0
+	li.t t0, 3
+	bne.t a0, t0, fail1
+	# the pass exit itself is the exit-call check
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail1:
+	li.t a7, 93
+	li.t a0, 1
+	ecall.t
+
+	.data
+buf:
+	.zero 4

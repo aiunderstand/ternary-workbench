@@ -1,0 +1,54 @@
+# SLIN.T / SLIZ.T / SLIP.T conformance: immediate left shifts
+# The fill trit (N = -, Z = 0, P = +) lands in every vacated trit.
+# PROVISIONAL: pending the signed-shift-amount proposal (see README).
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t t0, 1
+	# check 1: 1 << 2 fill 0 = 9
+	li.t a0, 1
+	sliz.t t1, t0, 2
+	li.t t2, 9
+	bne.t t1, t2, fail
+	# check 2: 1 << 2 fill - = 9 - 3 - 1 = 5
+	li.t a0, 2
+	slin.t t1, t0, 2
+	li.t t2, 5
+	bne.t t1, t2, fail
+	# check 3: 1 << 2 fill + = 9 + 3 + 1 = 13
+	li.t a0, 3
+	slip.t t1, t0, 2
+	li.t t2, 13
+	bne.t t1, t2, fail
+	# check 4: 1 << 3 fill - = 27 - 13 = 14 (three vacated trits filled)
+	li.t a0, 4
+	slin.t t1, t0, 3
+	li.t t2, 14
+	bne.t t1, t2, fail
+	# check 5: 1 << 3 fill + = 27 + 13 = 40
+	li.t a0, 5
+	slip.t t1, t0, 3
+	li.t t2, 40
+	bne.t t1, t2, fail
+	# check 6: shift by 0 is identity for every fill
+	li.t a0, 6
+	li.t t0, -777
+	slin.t t1, t0, 0
+	bne.t t1, t0, fail
+	slip.t t1, t0, 0
+	bne.t t1, t0, fail
+	sliz.t t1, t0, 0
+	bne.t t1, t0, fail
+	# check 7: nonzero low trits shift up intact: 5 << 1 fill 0 = 15
+	li.t a0, 7
+	li.t t0, 5
+	sliz.t t1, t0, 1
+	li.t t2, 15
+	bne.t t1, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

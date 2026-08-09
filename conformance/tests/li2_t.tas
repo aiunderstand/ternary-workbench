@@ -1,0 +1,30 @@
+# LI2.T conformance: dual 6-trit load immediate (each imm in +/-364)
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# checks 1+2: the 6-trit extremes
+	li2.t t0, t1, 364, -364
+	li.t a0, 1
+	li.t t2, 364
+	bne.t t0, t2, fail
+	li.t a0, 2
+	li.t t2, -364
+	bne.t t1, t2, fail
+	# checks 3+4: zero and a mid-range value
+	li2.t t0, t1, 0, 123
+	li.t a0, 3
+	bne.t t0, zero, fail
+	li.t a0, 4
+	li.t t2, 123
+	bne.t t1, t2, fail
+	# check 5: both destinations equal
+	li2.t t0, t1, -7, -7
+	li.t a0, 5
+	bne.t t0, t1, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

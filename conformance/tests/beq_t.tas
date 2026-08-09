@@ -1,0 +1,35 @@
+# BEQ.T conformance: taken and not-taken
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: equal -> taken
+	li.t a0, 1
+	li.t t0, 5
+	li.t t1, 5
+	beq.t t0, t1, taken1
+	jal.t zero, fail
+taken1:
+	# check 2: not equal -> not taken
+	li.t a0, 2
+	li.t t1, 6
+	beq.t t0, t1, fail
+	# check 3: equal negative values -> taken
+	li.t a0, 3
+	li.t t0, -141214768240
+	li.t t1, -141214768240
+	beq.t t0, t1, taken3
+	jal.t zero, fail
+taken3:
+	# check 4: equal via x0 -> taken
+	li.t a0, 4
+	li.t t0, 0
+	beq.t t0, zero, taken4
+	jal.t zero, fail
+taken4:
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

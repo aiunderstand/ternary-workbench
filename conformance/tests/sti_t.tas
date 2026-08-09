@@ -1,0 +1,37 @@
+# STI.T conformance: standard ternary inversion (negate) is total
+# Balanced range is symmetric: -MIN = MAX with no overflow case.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: -(5) = -5
+	li.t a0, 1
+	li.t t0, 5
+	sti.t t1, t0
+	li.t t2, -5
+	bne.t t1, t2, fail
+	# check 2: -(-5) = 5
+	li.t a0, 2
+	sti.t t2, t1
+	bne.t t2, t0, fail
+	# check 3: -(0) = 0
+	li.t a0, 3
+	sti.t t1, zero
+	bne.t t1, zero, fail
+	# check 4: -(MIN) = MAX (no INT_MIN overflow in balanced ternary)
+	li.t a0, 4
+	li.t t0, -141214768240
+	sti.t t1, t0
+	li.t t2, 141214768240
+	bne.t t1, t2, fail
+	# check 5: -(MAX) = MIN
+	li.t a0, 5
+	sti.t t0, t2
+	li.t t3, -141214768240
+	bne.t t0, t3, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

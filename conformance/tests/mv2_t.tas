@@ -1,0 +1,38 @@
+# MV2.T conformance: dual move, both reads complete before either write
+# The swap form mv2.t a, b, b, a is the one case that distinguishes
+# reads-before-writes from two sequential moves.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# checks 1+2: swap - would fail if writes happened between reads
+	li.t t0, 111
+	li.t t1, 222
+	mv2.t t0, t1, t1, t0
+	li.t a0, 1
+	li.t t2, 222
+	bne.t t0, t2, fail
+	li.t a0, 2
+	li.t t2, 111
+	bne.t t1, t2, fail
+	# checks 3+4: plain dual move to two fresh destinations
+	li.t a0, 3
+	li.t t0, -7
+	li.t t1, 42
+	mv2.t t2, t3, t0, t1
+	bne.t t2, t0, fail
+	li.t a0, 4
+	bne.t t3, t1, fail
+	# checks 5+6: same source fanned out to both destinations
+	li.t a0, 5
+	li.t t0, 999
+	mv2.t t2, t3, t0, t0
+	bne.t t2, t0, fail
+	li.t a0, 6
+	bne.t t3, t0, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

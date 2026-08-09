@@ -1,0 +1,134 @@
+# PENDING - M extension: MUL.T / MULH.T / DIV.T / REM.T / MOD.T / MAC.T
+# Unlocks with plan A1.5 (M extension in the reference simulator).
+# Written to rebel6-extensions.md "M - integer multiply / divide";
+# never executed - expected values hand-computed, re-verify on first run.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: 3 * 5 = 15
+	li.t a0, 1
+	li.t t0, 3
+	li.t t1, 5
+	mul.t t2, t0, t1
+	li.t t3, 15
+	bne.t t2, t3, fail
+	# check 2: -3 * 5 = -15
+	li.t a0, 2
+	li.t t0, -3
+	mul.t t2, t0, t1
+	li.t t3, -15
+	bne.t t2, t3, fail
+	# check 3: balanced wrap: MAX * 2 = 3^24 - 1 = -1 (mod 3^24)
+	li.t a0, 3
+	li.t t0, 141214768240
+	li.t t1, 2
+	mul.t t2, t0, t1
+	li.t t3, -1
+	bne.t t2, t3, fail
+	# check 4: MULH.T of the same product: 3^24 - 1 = (+1)*3^24 + (-1),
+	# so the high word is 1
+	li.t a0, 4
+	mulh.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 5: small product has zero high word
+	li.t a0, 5
+	li.t t0, 3
+	li.t t1, 5
+	mulh.t t2, t0, t1
+	bne.t t2, zero, fail
+	# check 6: division truncates toward zero: 7 / 2 = 3
+	li.t a0, 6
+	li.t t0, 7
+	li.t t1, 2
+	div.t t2, t0, t1
+	li.t t3, 3
+	bne.t t2, t3, fail
+	# check 7: -7 / 2 = -3
+	li.t a0, 7
+	li.t t0, -7
+	div.t t2, t0, t1
+	li.t t3, -3
+	bne.t t2, t3, fail
+	# check 8: 7 / -2 = -3
+	li.t a0, 8
+	li.t t0, 7
+	li.t t1, -2
+	div.t t2, t0, t1
+	li.t t3, -3
+	bne.t t2, t3, fail
+	# check 9: MIN / -1 = MAX, no overflow trap (symmetric range)
+	li.t a0, 9
+	li.t t0, -141214768240
+	li.t t1, -1
+	div.t t2, t0, t1
+	li.t t3, 141214768240
+	bne.t t2, t3, fail
+	# check 10: division by zero does not trap: x / 0 = 0
+	li.t a0, 10
+	li.t t0, 7
+	div.t t2, t0, zero
+	bne.t t2, zero, fail
+	# check 11: REM.T pairs DIV.T: 7 rem 2 = 1
+	li.t a0, 11
+	li.t t1, 2
+	rem.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 12: sign of rem follows the dividend: -7 rem 2 = -1
+	li.t a0, 12
+	li.t t0, -7
+	rem.t t2, t0, t1
+	li.t t3, -1
+	bne.t t2, t3, fail
+	# check 13: 7 rem -2 = 1
+	li.t a0, 13
+	li.t t0, 7
+	li.t t1, -2
+	rem.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 14: rem by zero preserves the quotient identity: x rem 0 = x
+	li.t a0, 14
+	rem.t t2, t0, zero
+	bne.t t2, t0, fail
+	# check 15: MOD.T is floored - sign follows the divisor: -7 mod 2 = 1
+	li.t a0, 15
+	li.t t0, -7
+	li.t t1, 2
+	mod.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 16: 7 mod -2 = -1
+	li.t a0, 16
+	li.t t0, 7
+	li.t t1, -2
+	mod.t t2, t0, t1
+	li.t t3, -1
+	bne.t t2, t3, fail
+	# check 17: x mod 0 = x
+	li.t a0, 17
+	mod.t t2, t0, zero
+	bne.t t2, t0, fail
+	# check 18: MAC.T: 3 * 4 + 5 = 17
+	li.t a0, 18
+	li.t t0, 3
+	li.t t1, 4
+	li.t t2, 5
+	mac.t t3, t0, t1, t2
+	li.t t4, 17
+	bne.t t3, t4, fail
+	# check 19: MAC.T wraps balanced: MAX * 2 + 1 = -1 + 1 = 0
+	li.t a0, 19
+	li.t t0, 141214768240
+	li.t t1, 2
+	li.t t2, 1
+	mac.t t3, t0, t1, t2
+	bne.t t3, zero, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

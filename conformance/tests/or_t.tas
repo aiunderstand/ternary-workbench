@@ -1,0 +1,37 @@
+# OR.T conformance: tritwise max, full 9-pair truth table in one vector
+# a = 9464 has trit lanes 0..8 (LSB first): - - - 0 0 0 + + +
+# b = 6056 has trit lanes 0..8 (LSB first): - 0 + - 0 + - 0 +
+# tritwise max lanes:                       - 0 + 0 0 + + + +  ->  9728
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: all 9 trit pairs at once
+	li.t a0, 1
+	li.t t0, 9464
+	li.t t1, 6056
+	or.t t2, t0, t1
+	li.t t3, 9728
+	bne.t t2, t3, fail
+	# check 2: commutative
+	li.t a0, 2
+	or.t t2, t1, t0
+	bne.t t2, t3, fail
+	# check 3: or(5, 7) = 7 (5 = (-,-,+), 7 = (+,-,+) LSB first)
+	li.t a0, 3
+	li.t t0, 5
+	li.t t1, 7
+	or.t t2, t0, t1
+	bne.t t2, t1, fail
+	# check 4: the identity of max is the all-minus word (= MIN), not 0
+	li.t a0, 4
+	li.t t0, 9464
+	li.t t1, -141214768240
+	or.t t2, t0, t1
+	bne.t t2, t0, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

@@ -1,0 +1,38 @@
+# ADDI.T conformance: add immediate (imm12, +/-265720), balanced wrap
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: 5 + (-13) = -8
+	li.t a0, 1
+	li.t t0, 5
+	addi.t t1, t0, -13
+	li.t t2, -8
+	bne.t t1, t2, fail
+	# check 2: 0 + 265720 = 265720 (imm12 maximum)
+	li.t a0, 2
+	addi.t t1, zero, 265720
+	li.t t2, 265720
+	bne.t t1, t2, fail
+	# check 3: 0 + (-265720) = -265720 (imm12 minimum)
+	li.t a0, 3
+	addi.t t1, zero, -265720
+	li.t t2, -265720
+	bne.t t1, t2, fail
+	# check 4: MAX + 1 wraps to MIN via the immediate path
+	li.t a0, 4
+	li.t t0, 141214768240
+	addi.t t1, t0, 1
+	li.t t2, -141214768240
+	bne.t t1, t2, fail
+	# check 5: x + 0 = x
+	li.t a0, 5
+	li.t t0, -4242
+	addi.t t1, t0, 0
+	bne.t t1, t0, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

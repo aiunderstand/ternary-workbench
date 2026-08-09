@@ -1,0 +1,39 @@
+# SLT.T conformance: set if less than (+1 / 0)
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: 3 < 5 -> +1
+	li.t a0, 1
+	li.t t0, 3
+	li.t t1, 5
+	slt.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 2: 5 < 3 -> 0
+	li.t a0, 2
+	slt.t t2, t1, t0
+	bne.t t2, zero, fail
+	# check 3: 5 < 5 -> 0
+	li.t a0, 3
+	slt.t t2, t1, t1
+	bne.t t2, zero, fail
+	# check 4: -5 < 3 -> +1 (signed value compare)
+	li.t a0, 4
+	li.t t0, -5
+	slt.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 5: MIN < MAX -> +1
+	li.t a0, 5
+	li.t t0, -141214768240
+	li.t t1, 141214768240
+	slt.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

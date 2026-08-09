@@ -1,0 +1,38 @@
+# BCEG.T conformance: three-way branch - equal -> off1,
+# greater -> off2, smaller -> fall through (PC+1)
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: equal -> first target
+	li.t a0, 1
+	li.t t0, 2
+	li.t t1, 1
+	bceg.t t0, t0, arm_eq, fail
+	jal.t zero, fail
+arm_eq:
+	# check 2: 2 > 1 -> second target
+	li.t a0, 2
+	bceg.t t0, t1, fail, arm_gt
+	jal.t zero, fail
+arm_gt:
+	# check 3: 1 < 2 -> falls through past both targets
+	li.t a0, 3
+	bceg.t t1, t0, fail, fail
+	# check 4: numeric displacement +2 on the equal arm skips one instruction
+	li.t a0, 4
+	bceg.t t1, t1, 2, 2
+	jal.t zero, fail
+	# check 5: negative operands: -1 > -2 -> second target
+	li.t a0, 5
+	li.t t0, -1
+	li.t t1, -2
+	bceg.t t0, t1, fail, arm_neg
+	jal.t zero, fail
+arm_neg:
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

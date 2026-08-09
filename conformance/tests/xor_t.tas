@@ -1,0 +1,43 @@
+# XOR.T conformance: tritwise -(a*b), full 9-pair truth table in one vector
+# a = 9464 has trit lanes 0..8 (LSB first): - - - 0 0 0 + + +
+# b = 6056 has trit lanes 0..8 (LSB first): - 0 + - 0 + - 0 +
+# tritwise -(a*b) lanes:                    - 0 + 0 0 0 + 0 -  ->  -5824
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: all 9 trit pairs at once
+	li.t a0, 1
+	li.t t0, 9464
+	li.t t1, 6056
+	xor.t t2, t0, t1
+	li.t t3, -5824
+	bne.t t2, t3, fail
+	# check 2: commutative
+	li.t a0, 2
+	xor.t t2, t1, t0
+	bne.t t2, t3, fail
+	# check 3: xor(5, 7) = -11
+	li.t a0, 3
+	li.t t0, 5
+	li.t t1, 7
+	xor.t t2, t0, t1
+	li.t t3, -11
+	bne.t t2, t3, fail
+	# check 4: xor(MAX, MAX) = MIN (every +/+ lane -> -)
+	li.t a0, 4
+	li.t t0, 141214768240
+	xor.t t2, t0, t0
+	li.t t3, -141214768240
+	bne.t t2, t3, fail
+	# check 5: xor(x, 0) = 0 (a zero trit annihilates its lane)
+	li.t a0, 5
+	li.t t0, 12345
+	xor.t t2, t0, zero
+	bne.t t2, zero, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

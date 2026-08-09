@@ -1,0 +1,77 @@
+# PENDING - Ztl extension: TLUT.T / TLUTI.T programmable tritwise gates
+# Unlocks with plan A1.6 (Ztl in the reference simulator).
+# Written to rebel6-extensions.md "Ztl - ternary logic";
+# never executed - re-verify on first run.
+#
+# Input vector for unary gates: x = 8, trit lanes 0..2 = (-,0,+),
+# lanes 3..23 = 0. A unary gate therefore writes f(-),f(0),f(+) into
+# lanes 0..2 and f(0) into every high lane. With
+# S = 3^3 + ... + 3^23 = 141214768227 the expected full-word results
+# below are gate(lanes 0..2) + f(0)*S.
+#
+# For the binary gates the operands a = 9464 (- - - 0 0 0 + + +) and
+# b = 6056 (- 0 + - 0 + - 0 +) enumerate the 9 input pairs across
+# lanes 0..8 in exactly the table-position order, so the lane result
+# equals the table trit at that position: result = table value + f(0,0)
+# adjustment on the high lanes (all gates below have f(0,0) = 0).
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s0, 8
+	# check 1: NTI.T - table (+,-,-), f(0) = -
+	# lanes 0..2 -> (+,-,-) = -11, high lanes -S
+	li.t a0, 1
+	nti.t t1, s0
+	li.t t2, -141214768238
+	bne.t t1, t2, fail
+	# check 2: raw TLUTI.T with the NTI table (+ at pos0, - pos1, - pos2
+	# = 1 - 3 - 9 = -11) matches the pseudo
+	li.t a0, 2
+	tluti.t t3, s0, -11
+	bne.t t3, t1, fail
+	# check 3: PTI.T - table (+,+,-), f(0) = +
+	# lanes 0..2 -> (+,+,-) = -5, high lanes +S
+	li.t a0, 3
+	pti.t t1, s0
+	li.t t2, 141214768222
+	bne.t t1, t2, fail
+	# check 4: MTI.T - table (+,0,+), f(0) = 0
+	# lanes 0..2 -> (+,0,+) = 10, high lanes 0
+	li.t a0, 4
+	mti.t t1, s0
+	li.t t2, 10
+	bne.t t1, t2, fail
+	# check 5: CYU.T - table (0,+,-), f(0) = +
+	# lanes 0..2 -> (0,+,-) = -6, high lanes +S
+	li.t a0, 5
+	cyu.t t1, s0
+	li.t t2, 141214768221
+	bne.t t1, t2, fail
+	# check 6: CYD.T - table (+,-,0), f(0) = -
+	# lanes 0..2 -> (+,-,0) = -2, high lanes -S
+	li.t a0, 6
+	cyd.t t1, s0
+	li.t t2, -141214768229
+	bne.t t1, t2, fail
+	# check 7: TLUT.T with the CONS.T canonical table
+	# table (-,0,0,0,0,0,0,0,+) at positions 0..8 = -1 + 3^8 = 6560
+	# cons(9464, 6056): only the (-,-) and (+,+) lanes survive -> 6560
+	li.t a0, 7
+	li.t t0, 9464
+	li.t t1, 6056
+	li.t t2, 6560
+	tlut.t t3, t0, t1, t2
+	bne.t t3, t2, fail
+	# check 8: TLUT.T with the KIMP.T canonical table
+	# table (+,+,+,0,0,+,-,0,+) = 6088, kimp(a,b) = max(-a, b) -> 6088
+	li.t a0, 8
+	li.t t2, 6088
+	tlut.t t3, t0, t1, t2
+	bne.t t3, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

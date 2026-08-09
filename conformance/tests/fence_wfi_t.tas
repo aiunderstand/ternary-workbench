@@ -1,0 +1,41 @@
+# FENCE.T / WFI.T conformance: both execute (single-hart, no pending
+# device state: fence orders nothing observable, wfi may complete
+# immediately) and neither disturbs architectural state.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s0, buf
+	li.t t0, 777
+	sw.t s0, t0, 0
+	li.t t1, -42
+	# check 1: fence.t executes and registers/memory survive
+	li.t a0, 1
+	fence.t
+	li.t t2, 777
+	bne.t t0, t2, fail
+	lw.t t3, s0, 0
+	bne.t t3, t2, fail
+	# check 2: wfi.t executes and registers/memory survive
+	li.t a0, 2
+	wfi.t
+	li.t t2, -42
+	bne.t t1, t2, fail
+	lw.t t3, s0, 0
+	li.t t2, 777
+	bne.t t3, t2, fail
+	# check 3: back-to-back fences are fine
+	li.t a0, 3
+	fence.t
+	fence.t
+	bne.t t0, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
+
+	.data
+buf:
+	.zero 4

@@ -1,0 +1,38 @@
+# MIN.T conformance: wordwise (arithmetic) minimum
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: min(3, 5) = 3
+	li.t a0, 1
+	li.t t0, 3
+	li.t t1, 5
+	min.t t2, t0, t1
+	bne.t t2, t0, fail
+	# check 2: commutative: min(5, 3) = 3
+	li.t a0, 2
+	min.t t2, t1, t0
+	bne.t t2, t0, fail
+	# check 3: min(-5, 3) = -5 (wordwise, not tritwise)
+	li.t a0, 3
+	li.t t0, -5
+	li.t t1, 3
+	min.t t2, t0, t1
+	bne.t t2, t0, fail
+	# check 4: min(x, x) = x
+	li.t a0, 4
+	li.t t0, 777
+	min.t t2, t0, t0
+	bne.t t2, t0, fail
+	# check 5: min(MIN, MAX) = MIN
+	li.t a0, 5
+	li.t t0, -141214768240
+	li.t t1, 141214768240
+	min.t t2, t0, t1
+	bne.t t2, t0, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

@@ -1,0 +1,43 @@
+# ROT.T conformance: cyclic shift mod 24, no fill, + = toward MST
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: rot by 24 is the identity
+	li.t a0, 1
+	li.t t0, 123456
+	rot.t t1, t0, 24
+	bne.t t1, t0, fail
+	# check 2: rot k then rot 24-k is the identity (k = 5)
+	li.t a0, 2
+	rot.t t1, t0, 5
+	rot.t t1, t1, 19
+	bne.t t1, t0, fail
+	# check 3: rot k then rot -k is the identity (negative amount mod 24)
+	li.t a0, 3
+	rot.t t1, t0, 3
+	rot.t t1, t1, -3
+	bne.t t1, t0, fail
+	# check 4: rot(1, 1) = 3 (one step toward MST)
+	li.t a0, 4
+	li.t t0, 1
+	rot.t t1, t0, 1
+	li.t t2, 3
+	bne.t t1, t2, fail
+	# check 5: rot(1, -1) wraps the LST to the MST: 3^23
+	li.t a0, 5
+	rot.t t1, t0, -1
+	li.t t2, 94143178827
+	bne.t t1, t2, fail
+	# check 6: rot(3^23, 1) wraps the MST back to the LST: 1
+	li.t a0, 6
+	li.t t0, 94143178827
+	rot.t t1, t0, 1
+	li.t t2, 1
+	bne.t t1, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

@@ -1,0 +1,46 @@
+# X0 conformance: hardwired zero - writes discarded, reads return 0
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: reads as 0
+	li.t a0, 1
+	add.t t0, zero, zero
+	bne.t t0, zero, fail
+	# check 2: li.t to x0 is discarded
+	li.t a0, 2
+	li.t zero, 123
+	li.t t0, 0
+	bne.t zero, t0, fail
+	# check 3: ALU write to x0 is discarded
+	li.t a0, 3
+	li.t t1, 7
+	add.t zero, t1, t1
+	bne.t zero, t0, fail
+	# check 4: addi.t to x0 is discarded (nonzero encoding of the nop idiom)
+	li.t a0, 4
+	addi.t zero, zero, 7
+	bne.t zero, t0, fail
+	# check 5: sub through x0 reads two zeros
+	li.t a0, 5
+	sub.t t2, zero, zero
+	bne.t t2, zero, fail
+	# check 6: load into x0 is discarded, memory unharmed
+	li.t a0, 6
+	li.t s0, buf
+	li.t t1, 555
+	sw.t s0, t1, 0
+	lw.t zero, s0, 0
+	bne.t zero, t0, fail
+	lw.t t2, s0, 0
+	bne.t t2, t1, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
+
+	.data
+buf:
+	.zero 4

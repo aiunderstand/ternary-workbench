@@ -1,0 +1,58 @@
+# PENDING - trap cause-code cross-check against the PLATFORM table
+# (rebel6-platform.md "Balanced cause codes"), not the ISA annotations:
+#   ecall from U -> -7, from S -> -8, from M -> -9, ebreak -> -10
+# Unlocks with plan A1.3 (system group, negative-range register file,
+# trap entry, TRET.T in the reference simulator).
+# Never executed. Two things in this draft are necessarily provisional:
+#   1. The assembler syntax for negative-range registers (mtvec = X-1,
+#      mepc = X-2, mcause = X-3, mstatus = X-4) is not yet defined in
+#      the R2R dialect - the platform names are used below.
+#   2. ECALL.T from M collides with the simulator's semihosting
+#      service. This test assumes A1.3 semantics: with a handler
+#      installed via mtvec, ECALL.T traps to it; semihosting applies
+#      only to the simulator's default (no-handler) environment.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# install the trap handler
+	li.t t0, handler
+	add.t mtvec, t0, zero
+	# s2 = expected cause for the next trap
+	# check 1: EBREAK.T -> cause -10, mepc = address of the ebreak
+	li.t a0, 1
+	li.t s2, -10
+	li.t s3, ebreak_site
+ebreak_site:
+	ebreak.t
+	# check 2: ECALL.T from M -> cause -9, mepc = address of the ecall
+	li.t a0, 2
+	li.t s2, -9
+	li.t s3, mcall_site
+mcall_site:
+	ecall.t
+	# checks 3 and 4 (ecall from S -> -8, from U -> -7) require mstatus
+	# MPP staging plus TRET.T descent into S and U - to be filled in
+	# when A1.3 lands with the privilege-mode plumbing testable.
+	# all checks passed - uninstall the handler first so the exit
+	# ECALL.T reaches the semihosting service again
+	add.t mtvec, zero, zero
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+
+# Handler: verify cause and mepc, then skip the trapping instruction.
+# Runs entirely in registers not used by the checks above.
+handler:
+	# cause must equal the expected value in s2
+	add.t t5, mcause, zero
+	bne.t t5, s2, fail
+	# mepc must point AT the trapping instruction (exception rule)
+	add.t t5, mepc, zero
+	bne.t t5, s3, fail
+	# resume past the trapping instruction: mepc + 1, return
+	addi.t t5, t5, 1
+	add.t mepc, t5, zero
+	tret.t
+fail:
+	li.t a7, 93
+	ecall.t

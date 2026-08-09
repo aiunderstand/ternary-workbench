@@ -1,0 +1,39 @@
+# MINV.T conformance: per-trit minority = negated majority
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: minority(5, 7, -1) = -majority(5, 7, -1) = -5
+	li.t a0, 1
+	li.t t0, 5
+	li.t t1, 7
+	li.t t2, -1
+	minv.t t3, t0, t1, t2
+	li.t t4, -5
+	bne.t t3, t4, fail
+	# check 2: minority(a, a, b) = -a
+	li.t a0, 2
+	li.t t0, 17
+	li.t t1, -100
+	minv.t t3, t0, t0, t1
+	li.t t4, -17
+	bne.t t3, t4, fail
+	# check 3: minority(0, 0, 0) = 0
+	li.t a0, 3
+	minv.t t3, zero, zero, zero
+	bne.t t3, zero, fail
+	# check 4: minv agrees with sti(majv) on a mixed vector
+	li.t a0, 4
+	li.t t0, 9464
+	li.t t1, 6056
+	li.t t2, -13
+	majv.t t3, t0, t1, t2
+	sti.t t3, t3
+	minv.t t4, t0, t1, t2
+	bne.t t3, t4, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

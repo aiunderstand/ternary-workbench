@@ -1,0 +1,54 @@
+# LW.T / SW.T conformance: word store/load round-trips
+# R2R dialect operand order: sw.t base, src, offset / lw.t rd, base, offset
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s0, buf
+	# check 1: positive word round-trip
+	li.t a0, 1
+	li.t t0, 730
+	sw.t s0, t0, 0
+	lw.t t1, s0, 0
+	bne.t t1, t0, fail
+	# check 2: negative word round-trip
+	li.t a0, 2
+	li.t t0, -5
+	sw.t s0, t0, 4
+	lw.t t1, s0, 4
+	bne.t t1, t0, fail
+	# check 3: MAX round-trip
+	li.t a0, 3
+	li.t t0, 141214768240
+	sw.t s0, t0, 8
+	lw.t t1, s0, 8
+	bne.t t1, t0, fail
+	# check 4: MIN round-trip
+	li.t a0, 4
+	li.t t0, -141214768240
+	sw.t s0, t0, 12
+	lw.t t1, s0, 12
+	bne.t t1, t0, fail
+	# check 5: adjacent words do not clobber each other
+	li.t a0, 5
+	lw.t t1, s0, 8
+	li.t t2, 141214768240
+	bne.t t1, t2, fail
+	lw.t t1, s0, 4
+	li.t t2, -5
+	bne.t t1, t2, fail
+	# check 6: zero round-trip over a previously nonzero word
+	li.t a0, 6
+	sw.t s0, zero, 0
+	lw.t t1, s0, 0
+	bne.t t1, zero, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
+
+	.data
+buf:
+	.zero 16

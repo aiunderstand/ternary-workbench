@@ -1,0 +1,72 @@
+# LH.T / LT.T / SH.T / ST.T conformance: narrow loads zero-pad (exact),
+# narrow stores truncate to the balanced range of the width
+# (tryte +/-364 mod 729, halfword +/-265720 mod 3^12).
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s0, buf
+	# check 1: lh of a stored word 730 reads 730 (fits 2 trytes)
+	li.t a0, 1
+	li.t t0, 730
+	sw.t s0, t0, 0
+	lh.t t1, s0, 0
+	bne.t t1, t0, fail
+	# check 2: lt low tryte of 730 = 1 (trytes little-endian: 1, 1)
+	li.t a0, 2
+	lt.t t1, s0, 0
+	li.t t2, 1
+	bne.t t1, t2, fail
+	# check 3: st.t balanced truncation: 730 mod 729 -> 1
+	li.t a0, 3
+	st.t s0, t0, 4
+	lt.t t1, s0, 4
+	li.t t2, 1
+	bne.t t1, t2, fail
+	# check 4: st.t of -400 -> -400 + 729 = 329
+	li.t a0, 4
+	li.t t0, -400
+	st.t s0, t0, 4
+	lt.t t1, s0, 4
+	li.t t2, 329
+	bne.t t1, t2, fail
+	# check 5: in-range negative tryte survives exactly (zero-pad, no sign games)
+	li.t a0, 5
+	li.t t0, -5
+	st.t s0, t0, 4
+	lt.t t1, s0, 4
+	bne.t t1, t0, fail
+	# check 6: sh.t balanced truncation: 300000 - 3^12 = -231441
+	li.t a0, 6
+	li.t t0, 300000
+	sh.t s0, t0, 8
+	lh.t t1, s0, 8
+	li.t t2, -231441
+	bne.t t1, t2, fail
+	# check 7: halfword extreme -265720 round-trips exactly
+	li.t a0, 7
+	li.t t0, -265720
+	sh.t s0, t0, 8
+	lh.t t1, s0, 8
+	bne.t t1, t0, fail
+	# check 8: a tryte store only writes its own tryte within the word
+	# word = MAX (each tryte 364), overwrite tryte 0 with 2:
+	# word becomes MAX - 364 + 2 = 141214767878
+	li.t a0, 8
+	li.t t0, 141214768240
+	sw.t s0, t0, 12
+	li.t t1, 2
+	st.t s0, t1, 12
+	lw.t t2, s0, 12
+	li.t t3, 141214767878
+	bne.t t2, t3, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
+
+	.data
+buf:
+	.zero 16

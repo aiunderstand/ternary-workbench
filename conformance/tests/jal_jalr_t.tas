@@ -1,0 +1,49 @@
+# JAL.T / JALR.T conformance: link = PC+1 (instruction-granular),
+# call/return, jump via register + offset
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s1, 0
+	# two consecutive calls: both must return, links must be 2 apart
+	jal.t ra, func
+	add.t s2, ra, zero
+	jal.t ra, func
+	add.t s3, ra, zero
+	# check 1: func body ran exactly twice
+	li.t a0, 1
+	li.t t0, 2
+	bne.t s1, t0, fail
+	# check 2: the two link values differ by exactly 2 instructions
+	# (jal at P links P+1, the add sits at P+1, next jal at P+2 links P+3)
+	li.t a0, 2
+	sub.t t0, s3, s2
+	li.t t1, 2
+	bne.t t0, t1, fail
+	# check 3: jal.t zero is a plain jump - link write to x0 discarded
+	li.t a0, 3
+	jal.t zero, over
+	jal.t zero, fail
+over:
+	bne.t zero, zero, fail
+	# check 4: jalr through a register holding a code address
+	li.t a0, 4
+	li.t t0, func
+	jalr.t ra, t0, 0
+	li.t t1, 3
+	bne.t s1, t1, fail
+	# check 5: jalr with a nonzero offset: func+1 skips the increment
+	li.t a0, 5
+	li.t t0, func
+	jalr.t ra, t0, 1
+	li.t t1, 3
+	bne.t s1, t1, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+func:
+	addi.t s1, s1, 1
+	jalr.t zero, ra, 0
+fail:
+	li.t a7, 93
+	ecall.t

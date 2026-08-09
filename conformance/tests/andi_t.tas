@@ -1,0 +1,29 @@
+# ANDI.T conformance: tritwise min with imm12
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: full 9-pair vector: min(9464, 6056) = 5792
+	li.t a0, 1
+	li.t t0, 9464
+	andi.t t1, t0, 6056
+	li.t t2, 5792
+	bne.t t1, t2, fail
+	# check 2: andi(5, 7) = 5
+	li.t a0, 2
+	li.t t0, 5
+	andi.t t1, t0, 7
+	li.t t2, 5
+	bne.t t1, t2, fail
+	# check 3: andi(x, 0) keeps only the minus lanes
+	# 5 = (-,-,+): min with 0 -> (-,-,0) = -4
+	li.t a0, 3
+	andi.t t1, t0, 0
+	li.t t2, -4
+	bne.t t1, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

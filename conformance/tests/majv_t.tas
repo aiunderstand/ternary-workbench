@@ -1,0 +1,42 @@
+# MAJV.T conformance: per-trit majority vote of three words
+# Note: the spec does not pin the all-distinct lane (-,0,+). The
+# simulator implements the median reading (result 0), which is the
+# consistent extension - checked last, see README.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: majority(5, 7, -1) = 5
+	# lanes: 5 = (-,-,+), 7 = (+,-,+), -1 = (-,0,0)
+	# lane majorities: -, -, + -> 5
+	li.t a0, 1
+	li.t t0, 5
+	li.t t1, 7
+	li.t t2, -1
+	majv.t t3, t0, t1, t2
+	li.t t4, 5
+	bne.t t3, t4, fail
+	# check 2: two equal words dominate: majority(a, a, b) = a
+	li.t a0, 2
+	li.t t0, 17
+	li.t t1, -100
+	majv.t t3, t0, t0, t1
+	bne.t t3, t0, fail
+	# check 3: all equal: majority(x, x, x) = x
+	li.t a0, 3
+	li.t t0, -12345
+	majv.t t3, t0, t0, t0
+	bne.t t3, t0, fail
+	# check 4: all-distinct lane (-,0,+) -> 0 (median reading)
+	li.t a0, 4
+	li.t t0, -1
+	li.t t1, 0
+	li.t t2, 1
+	majv.t t3, t0, t1, t2
+	bne.t t3, zero, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

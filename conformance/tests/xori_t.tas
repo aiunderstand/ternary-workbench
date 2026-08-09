@@ -1,0 +1,30 @@
+# XORI.T conformance: tritwise -(a*b) with imm12
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: full 9-pair vector: xor(9464, 6056) = -5824
+	li.t a0, 1
+	li.t t0, 9464
+	xori.t t1, t0, 6056
+	li.t t2, -5824
+	bne.t t1, t2, fail
+	# check 2: xori(5, 7) = -11
+	li.t a0, 2
+	li.t t0, 5
+	xori.t t1, t0, 7
+	li.t t2, -11
+	bne.t t1, t2, fail
+	# check 3: xori(x, -1) on a single-trit value: -((+)*(-)) = + at lane 0
+	# x = 1 -> result 1
+	li.t a0, 3
+	li.t t0, 1
+	xori.t t1, t0, -1
+	li.t t2, 1
+	bne.t t1, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
