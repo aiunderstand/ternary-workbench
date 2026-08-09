@@ -1,0 +1,92 @@
+# CLINT-analog conformance (rebel6-platform.md "CLINT-analog", "Simulator profile"):
+# the portable, race-free subset. Device slot 0 of the MMIO map - base address
+# -47,071,595,974 (slot n spans MMIO_TOP - (n+1)*6561 + 1 ... MMIO_TOP - n*6561 with
+# MMIO_TOP = -47,071,589,414). MMIO is tryte-granular, so the word registers are
+# accessed one balanced tryte slice at a time, little-endian:
+#   +0..+3  MTIME     RO  free-running platform counter, wraps modulo 3^24
+#   +4..+7  MTIMECMP  RW  timer line: pending '+2' while MTIME - MTIMECMP >= 0,
+#                         WRAP-AWARE signed compare (difference reduced mod 3^24
+#                         into the balanced word range)
+#   +400    MSIP      RW  tryte: write '+' -> software line '+1' pending; 0 -> clear
+# The lines are observed through mip (X-7), which reflects them; mie stays 0 and
+# mstatus.MIE stays 0 throughout, so nothing is ever delivered - no timing races.
+# The wrap-aware proof: with MTIME small and positive, MTIMECMP = MIN must read as
+# NOT pending (MIN is just ahead of MTIME on the mod-3^24 circle), where a naive
+# signed compare MTIME >= MTIMECMP would claim pending.
+# Note: mip is compared exactly - valid for the simulator profile, whose only lines
+# are the CLINT's trits 1 and 2.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t s0, -47071595974
+	# check 1: MTIME advances - two low-tryte reads, strictly increasing (fresh
+	# start: the count is far below one tryte wrap of 729)
+	li.t a0, 1
+	lt.t t1, s0, 0
+	lt.t t2, s0, 0
+	bge.t t1, t2, fail
+	# check 2: MTIMECMP = MIN (all four trytes -364) -> NOT pending, mip = 0.
+	# This is the wrap-aware discriminator: naive signed MTIME >= MIN is true.
+	li.t a0, 2
+	li.t t0, -364
+	st.t s0, t0, 4
+	st.t s0, t0, 5
+	st.t s0, t0, 6
+	st.t s0, t0, 7
+	add.t t1, mip, zero
+	bne.t t1, zero, fail
+	# check 3: MTIMECMP = 0 (already passed) -> timer pending, mip trit 2 = '+' (= 9)
+	li.t a0, 3
+	st.t s0, zero, 4
+	st.t s0, zero, 5
+	st.t s0, zero, 6
+	st.t s0, zero, 7
+	add.t t1, mip, zero
+	li.t t2, 9
+	bne.t t1, t2, fail
+	# check 4: MTIMECMP = MAX (far future) -> not pending, mip = 0
+	li.t a0, 4
+	li.t t0, 364
+	st.t s0, t0, 4
+	st.t s0, t0, 5
+	st.t s0, t0, 6
+	st.t s0, t0, 7
+	add.t t1, mip, zero
+	bne.t t1, zero, fail
+	# check 5: MSIP write '+' -> software line pending, mip trit 1 = '+' (= 3);
+	# write 0 -> cleared
+	li.t a0, 5
+	li.t t0, 1
+	st.t s0, t0, 400
+	add.t t1, mip, zero
+	li.t t2, 3
+	bne.t t1, t2, fail
+	st.t s0, zero, 400
+	add.t t1, mip, zero
+	bne.t t1, zero, fail
+	# check 6: MTIME is read-only - a store to it is a store access fault, -6,
+	# caught by the handler below
+	li.t a0, 6
+	li.t t0, handler
+	add.t mtvec, t0, zero
+	st.t s0, zero, 0
+	li.t t1, -6
+	bne.t s4, t1, fail
+	li.t t1, 1
+	bne.t s5, t1, fail
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+
+# Direct-mode handler: record the cause, count, resume past the faulting instruction.
+handler:
+	add.t s4, mcause, zero
+	addi.t s5, s5, 1
+	add.t t5, mepc, zero
+	addi.t t5, t5, 1
+	add.t mepc, t5, zero
+	tret.t
+
+fail:
+	li.t a7, 93
+	ecall.t

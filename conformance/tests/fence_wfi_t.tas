@@ -1,6 +1,11 @@
-# FENCE.T / WFI.T conformance: both execute (single-hart, no pending
-# device state: fence orders nothing observable, wfi may complete
-# immediately) and neither disturbs architectural state.
+# FENCE.T / WFI.T conformance: both execute and neither disturbs
+# architectural state. FENCE.T orders nothing observable single-hart.
+# WFI.T stalls until an interrupt is pending AND individually enabled
+# (mip AND mie != 0) regardless of the global MIE (rebel6-platform.md
+# "WFI.T"), so the test arms the CLINT timer in mie as its wake source;
+# with global MIE = 0 the pending '+2' is never delivered and execution
+# falls through to PC+1 - portable across implementations that stall
+# and implementations that treat WFI.T as a NOP-with-hint.
 # Pass: exit 0. Fail: exit a0 = index of failed check.
 	.text
 main:
@@ -15,8 +20,11 @@ main:
 	bne.t t0, t2, fail
 	lw.t t3, s0, 0
 	bne.t t3, t2, fail
-	# check 2: wfi.t executes and registers/memory survive
+	# check 2: wfi.t executes and registers/memory survive (timer armed in mie
+	# as the wake source; global MIE stays 0 so no trap is taken)
 	li.t a0, 2
+	li.t t6, 9
+	add.t mie, t6, zero
 	wfi.t
 	li.t t2, -42
 	bne.t t1, t2, fail

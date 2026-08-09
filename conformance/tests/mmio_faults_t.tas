@@ -1,0 +1,61 @@
+# MMIO access-semantics conformance (rebel6-platform.md "MMIO", normative):
+#   - tryte-granular access only: a wider ternary access (lw.t/lh.t/sw.t/sh.t) to the
+#     '-' MMIO region is a MISALIGNED access fault - cause -3 (load) / -4 (store)
+#   - an unpopulated MMIO address faults on access - cause -5 (load) / -6 (store)
+# Probed against the two ends of the rule: the CLINT (device slot 0, base
+# -47,071,595,974 - populated, so only the width can fault) and reserved device
+# slot 11 (base -47,071,668,145 - the map reserves slots 11..15, so every access
+# faults). Each fault is caught by a direct-mode handler that records mcause (s4),
+# counts the trap (s5) and resumes past the faulting instruction.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t t0, handler
+	add.t mtvec, t0, zero
+	li.t s0, -47071595974
+	li.t s1, -47071668145
+	# check 1: word-wide load of a device register (CLINT MTIME) -> -3
+	li.t a0, 1
+	lw.t t1, s0, 0
+	li.t t1, -3
+	bne.t s4, t1, fail
+	# check 2: word-wide store to a device register (CLINT MTIMECMP) -> -4
+	li.t a0, 2
+	sw.t s0, zero, 4
+	li.t t1, -4
+	bne.t s4, t1, fail
+	# check 3: halfword access is wider than a tryte too -> -3
+	li.t a0, 3
+	lh.t t1, s0, 4
+	li.t t1, -3
+	bne.t s4, t1, fail
+	# check 4: load from a reserved (unpopulated) device slot -> -5
+	li.t a0, 4
+	lt.t t1, s1, 0
+	li.t t1, -5
+	bne.t s4, t1, fail
+	# check 5: store to a reserved device slot -> -6
+	li.t a0, 5
+	st.t s1, zero, 0
+	li.t t1, -6
+	bne.t s4, t1, fail
+	# check 6: exactly 5 traps were taken - no access was silently completed
+	li.t a0, 6
+	li.t t1, 5
+	bne.t s5, t1, fail
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+
+# Direct-mode handler: record the cause, count, resume past the faulting instruction.
+handler:
+	add.t s4, mcause, zero
+	addi.t s5, s5, 1
+	add.t t5, mepc, zero
+	addi.t t5, t5, 1
+	add.t mepc, t5, zero
+	tret.t
+
+fail:
+	li.t a7, 93
+	ecall.t

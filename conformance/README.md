@@ -52,7 +52,7 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
 
 ## Coverage
 
-All 43 tests pass against the R2R reference simulator as of this
+All 45 tests pass against the R2R reference simulator as of this
 commit.
 
 | Test | Instructions | Directed edge cases |
@@ -85,7 +85,9 @@ commit.
 | `bceg_t` | `BCEG.T` | all three arms (== → off1, > → off2, < falls through) + numeric displacement |
 | `jal_jalr_t` | `JAL.T`, `JALR.T` | link = PC+1 proven by consecutive call sites linking 2 apart; call/return; register+offset jump entering past an instruction |
 | `ecall_exit_t` | `ECALL.T` (semihosting) | `write` (a7=64) returns tryte count in `a0`; `exit` (a7=93) reports `a0` as status |
-| `fence_wfi_t` | `FENCE.T`, `WFI.T` | execute as observable no-ops single-hart, state preserved |
+| `fence_wfi_t` | `FENCE.T`, `WFI.T` | `FENCE.T` orders nothing observable single-hart; `WFI.T` with the CLINT timer armed in `mie` as wake source (global `MIE` = 0, so nothing is delivered) — portable across stalling and NOP-with-hint implementations; state preserved |
+| `clint_t` | CLINT-analog MMIO (A1.4): `MTIME`, `MTIMECMP`, `MSIP` via tryte-granular `LT.T`/`ST.T`, lines observed in `mip` | MTIME monotone; **wrap-aware** compare discriminator (`MTIMECMP = MIN` with small MTIME → *not* pending, where naive signed ≥ says pending); pending/clear for `MTIMECMP` = 0/`MAX`; `MSIP` set/clear reflected in `mip` trit 1; store to read-only `MTIME` → −6; `mie` = 0 throughout, so no delivery — race-free |
+| `mmio_faults_t` | MMIO access semantics (normative): tryte granularity + population | word-wide `LW.T`/`SW.T` and halfword `LH.T` on CLINT registers → misaligned −3/−4; load/store on reserved device slot 11 → access fault −5/−6; trap-count guard against silently completed accesses |
 | `x0_t` | X0 semantics | writes via `li.t`/ALU/`addi`/load all discarded; reads return 0 |
 | `pseudos_t` | `NOP.T`, `MV.T`, `SWAP.T`, `BGT.T`, `BLE.T` (pseudos) | 1:1 assembler expansions: `nop.t` changes no state; `mv.t` copies and preserves the source; `swap.t` proven an exchange (not a double move); `bgt.t`/`ble.t` taken **and** not-taken incl. the `==` boundary and a signed compare |
 | `comments_t` | comment markers (`#`, `;`, `$`, `//`) | all four strip to end-of-line from any position: trailing same-line comments after instructions and labels; `;` is a comment marker, not a separator — code hidden after a `;` (even inside a `#` comment) is inert |
@@ -100,7 +102,11 @@ exercised by every file in addition to their dedicated tests.
 **Not yet covered**: `AIPC.T`, vectored trap dispatch and the −11
 privilege/streaming faults (covered by the R2R repo's
 `RiscvTests/Rebel6Tests/traps_*.tas` microtests pending promotion
-here), negative assembler tests, and the Base Binary group.
+here), interrupt *delivery* — cause `+1`/`+2` dispatch above `tvec`,
+`mepc` = next instruction, `WFI.T` wake (timing-sensitive; covered by
+the R2R repo's `RiscvTests/Rebel6Tests/dev_clint.tas`), SIMCON/SIMFB
+(host-side observable; `dev_simcon.tas`/`dev_simfb.tas` there),
+negative assembler tests, and the Base Binary group.
 
 ### Spec observation: `MAJV.T` all-distinct lane
 
