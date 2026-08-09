@@ -13,6 +13,10 @@
 # nonzero exit code is the index of the failed check inside the file.
 # Files named *.tas.xfail are known-broken on the current simulator
 # and are skipped (reported, not counted as failures).
+#
+# Streaming-register replay (A1.7): a test may ship a stream script as
+# <test>.script next to its .tas; the runner auto-detects it and passes
+# it to the executor as --stream-script <file>.
 
 set -u
 
@@ -39,7 +43,12 @@ for t in "$TESTS_DIR"/*.tas; do
         *) continue ;;
     esac
     ran=$((ran + 1))
-    out="$("$REBEL6_SIM" "$t" 2>&1)"
+    script="$TESTS_DIR/$name.script"
+    if [ -f "$script" ]; then
+        out="$("$REBEL6_SIM" --stream-script "$script" "$t" 2>&1)"
+    else
+        out="$("$REBEL6_SIM" "$t" 2>&1)"
+    fi
     rc=$?
     if [ "$rc" -eq 0 ]; then
         printf 'PASS  %s\n' "$name"

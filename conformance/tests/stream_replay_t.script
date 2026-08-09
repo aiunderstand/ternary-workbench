@@ -1,0 +1,10 @@
+# Replay script for stream_replay_t.tas.
+# R2R format (simulator-defined pending a spec ruling; see the R2R README
+# "Scripted streaming-register replay"):
+#   <stream-index> <at-count> <value>
+# stream N returns <value> for reads at/after retired-instruction count
+# <at-count>, until the next entry for that stream. Only stream0..stream2
+# (0..2) are scriptable; unscripted streams read 0.
+0 0 111
+0 100 222
+1 0 333

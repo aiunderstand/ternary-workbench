@@ -1,0 +1,90 @@
+# Streaming registers: scripted replay (A1.7) - rebel6-platform.md "Streaming
+# registers": "Simulators must provide scripted replay - stream values supplied
+# from a file with defined timing. Streaming registers are non-deterministic by
+# construction; without replay, nothing that reads them is differentially
+# testable."
+# The runner auto-detects stream_replay_t.script next to this file and passes it
+# to the executor (R2R: --stream-script). The script drives stream0 = 111 from
+# retired count 0 and 222 at/after count 100, stream1 = 333 from count 0;
+# stream2 stays unscripted. The timing reference is the retired-instruction
+# count a minstret read at the same point would return.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	li.t t0, handler
+	add.t mtvec, t0, zero
+	li.t s9, 100
+	# check 1: before the switch count, stream0 reads the scripted 111
+	li.t a0, 1
+	add.t t2, stream0, zero
+	add.t t3, minstret, zero
+	blt.t t3, s9, c1_count_ok
+	jal.t zero, fail
+c1_count_ok:
+	li.t t1, 111
+	bne.t t2, t1, fail
+	# check 2: stream1 reads its scripted 333
+	li.t a0, 2
+	add.t t2, stream1, zero
+	li.t t1, 333
+	bne.t t2, t1, fail
+	# check 3: the unscripted stream2 reads the default 0
+	li.t a0, 3
+	add.t t2, stream2, zero
+	bne.t t2, zero, fail
+	# check 4: value-change timing - spin on stream0 until it becomes 222; any
+	# value other than 111/222 fails, 222 observed before count 100 fails, and
+	# never observing the switch by count 2000 fails
+	li.t a0, 4
+	li.t t1, 111
+	li.t t6, 222
+	li.t s4, 2000
+spin:
+	add.t t2, stream0, zero
+	add.t t3, minstret, zero
+	beq.t t2, t6, switched
+	bne.t t2, t1, fail
+	blt.t t3, s4, spin
+	jal.t zero, fail
+switched:
+	blt.t t3, s9, fail
+	# check 5: replay must not regress the streaming write fault - writing
+	# stream0 still raises -11, verified by the handler (cause AND mepc), and
+	# the trap counter s8 guards against a silently completed write
+	li.t a0, 5
+	li.t s2, -11
+	li.t s3, swrite_site
+	li.t t1, 999
+swrite_site:
+	add.t stream0, t1, zero
+	li.t t1, 1
+	bne.t s8, t1, fail
+	# check 6: mcycle/minstret are hardware-written and never scripted - both
+	# still advance past every scripted value in this file
+	li.t a0, 6
+	add.t t2, minstret, zero
+	blt.t s9, t2, minstret_ok
+	jal.t zero, fail
+minstret_ok:
+	add.t t3, mcycle, zero
+	blt.t s9, t3, cycle_ok
+	jal.t zero, fail
+cycle_ok:
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
+
+# M-mode handler: verify the expected cause (s2) and mepc (s3), count the
+# verified trap in s8, then resume past the faulting instruction.
+handler:
+	add.t t5, mcause, zero
+	bne.t t5, s2, fail
+	add.t t5, mepc, zero
+	bne.t t5, s3, fail
+	addi.t s8, s8, 1
+	addi.t t5, t5, 1
+	add.t mepc, t5, zero
+	tret.t

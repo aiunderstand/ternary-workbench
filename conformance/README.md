@@ -45,6 +45,14 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
 - Files named `*.tas.xfail` are spec-correct tests that a known
   simulator bug breaks; the runner reports them as `XFAIL` and skips
   them (they never count as failures). None currently exist.
+- A test may ship a **stream-replay script** as `<test>.script` next
+  to its `.tas` (rebel6-platform.md "Streaming registers" makes
+  scripted replay a conformance requirement on simulators); the
+  runner auto-detects it and passes it to the executor as
+  `--stream-script <file>`. The script format is currently
+  R2R-defined (`<stream-index> <at-count> <value>` — see the R2R
+  README) pending a spec ruling; only `stream0..stream2` are
+  scriptable, and unscripted streams read 0.
 - `tests-pending/` held drafts for groups the simulator could not run
   yet; it is now **empty** — the last draft (`trap_causes_t`, keyed to
   A1.3) graduated to `tests/` when the trap architecture landed — see
@@ -52,7 +60,7 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
 
 ## Coverage
 
-All 45 tests pass against the R2R reference simulator as of this
+All 46 tests pass against the R2R reference simulator as of this
 commit.
 
 | Test | Instructions | Directed edge cases |
@@ -94,15 +102,17 @@ commit.
 | `m_ext_t` | `MUL.T`, `MULH.T`, `DIV.T`, `REM.T`, `MOD.T`, `MAC.T` (M extension) | balanced wrap `MAX*2 = -1`; `MULH.T:MUL.T` composes the exact product (high word 1 over low word −1); truncating division all sign pairs; `MIN / -1 = MAX` without trap; div-by-zero q=0, `x rem 0 = x`, `x mod 0 = x`; `REM` sign = dividend, `MOD` sign = divisor; `MAC.T` single balanced wrap |
 | `ztb_t` | `CLZT.T`, `TCNT.T` (Ztb extension) | `clzt(0) = 24`, sign-blind (`clzt(-1) = clzt(1) = 23`), top-trit boundary (`3^23` → 0, `3^22` → 1); `tcnt` of 0/`MAX`/`MIN` (0/24/24) and hand-computed popcounts |
 | `ztl_t` | `TLUT.T`, `TLUTI.T` + unary gate pseudos `NTI.T`, `PTI.T`, `MTI.T`, `CYU.T`, `CYD.T` (Ztl extension) | each unary canonical table applied to a vector exercising all three inputs, high-lane `f(0)` propagation verified over all 24 lanes; raw `TLUTI.T` matches its pseudo; `TLUT.T` with the `CONS.T` and `KIMP.T` canonical tables over the 9-pair enumeration vector (a=9464, b=6056) hitting every table position |
+| `stream_replay_t` | streaming registers `stream0..stream2` (`X-12..X-14`) under scripted replay (A1.7) + `minstret`/`mcycle` reads | scripted values honored per the timing rule (value from the entry with the largest at-count ≤ the retired count); value-change timing (switch at count 100 never observed early, observed by a bounded spin); unscripted stream reads 0; streaming **write** still faults −11 under replay (cause + `mepc` verified, trap-counter guard); `mcycle`/`minstret` stay hardware-written — scripts never touch them |
 | `trap_causes_t` | `EBREAK.T`, `TRET.T`, `ECALL.T` (trap path), system registers `mtvec`/`mepc`/`mcause`/`mstatus`/`sstatus`/`sepc` (A1.3) | the **platform** cause table asserted per level: ebreak → −10, ecall from M/S/U → −9/−8/−7; `mepc` points AT the trapping instruction; `TRET.T` resume; M→S descent via `mstatus.MPP`, S→U via the `sstatus.SPP` view + S-bank `TRET.T`; semihosting stays M-only (a7 = 93 from S/U traps); a verified-trap counter guards against calls being serviced instead of trapped |
 
 Scaffolding instructions `LI.T`, `BNE.T`, `JAL.T`, `ECALL.T` are
 exercised by every file in addition to their dedicated tests.
 
 **Not yet covered**: `AIPC.T`, vectored trap dispatch and the −11
-privilege/streaming faults (covered by the R2R repo's
+privilege faults (covered by the R2R repo's
 `RiscvTests/Rebel6Tests/traps_*.tas` microtests pending promotion
-here), interrupt *delivery* — cause `+1`/`+2` dispatch above `tvec`,
+here; the −11 streaming-**write** fault is now covered by
+`stream_replay_t`), interrupt *delivery* — cause `+1`/`+2` dispatch above `tvec`,
 `mepc` = next instruction, `WFI.T` wake (timing-sensitive; covered by
 the R2R repo's `RiscvTests/Rebel6Tests/dev_clint.tas`), SIMCON/SIMFB
 (host-side observable; `dev_simcon.tas`/`dev_simfb.tas` there),
