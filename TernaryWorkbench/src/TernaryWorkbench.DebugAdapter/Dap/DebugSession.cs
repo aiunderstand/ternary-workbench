@@ -24,6 +24,7 @@ public sealed class DebugSession
     private RspClient? _rsp;
     private Process? _process;
     private TasMap? _tasMap;
+    private SourceLocMap? _locMap;
     private string? _programPath;
     private RegisterFormat _format = RegisterFormat.Trits;
     private bool _stopOnEntry = true;
@@ -250,6 +251,14 @@ public sealed class DebugSession
             _tasMap = TasMap.Load(mapPath);
         else
             SendOutput("console", $"No source map at {mapPath}; line breakpoints and source-level stepping unavailable.\n");
+        if (File.Exists(_programPath))
+        {
+            // Layer 2: "# .loc" markers left by r6cc -g enable C/C++-level
+            // breakpoints and frames for compiled kernels.
+            SourceLocMap locMap = SourceLocMap.Load(_programPath);
+            if (locMap.Count > 0)
+                _locMap = locMap;
+        }
     }
 
     private void HandleSetBreakpoints(JsonObject request, JsonObject args)
@@ -267,6 +276,14 @@ public sealed class DebugSession
             }
         }
 
+        // Breakpoints in a C/C++ source compose Layer 2 (source line -> .tas
+        // line) with Layer 1 (.tas line -> address); breakpoints in the .tas
+        // itself use Layer 1 directly.
+        string? sourcePath = args["source"]?["path"]?.GetValue<string>();
+        bool isCompiledSource = sourcePath is not null && _programPath is not null &&
+            !string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(_programPath), StringComparison.OrdinalIgnoreCase) &&
+            _locMap is not null && _locMap.CoversFile(sourcePath);
+
         foreach (long address in _armedBreakpoints)
             rsp.ClearBreakpoint(address);
         _armedBreakpoints.Clear();
@@ -274,7 +291,17 @@ public sealed class DebugSession
         var results = new JsonArray();
         foreach (int line in requested)
         {
-            (long Address, int Line)? target = _tasMap?.AddressForLine(line);
+            (long Address, int Line)? target;
+            if (isCompiledSource)
+            {
+                (int TasLine, int SourceLine)? loc = _locMap!.TasLineForSourceLine(sourcePath!, line);
+                (long Address, int Line)? slot = loc is null ? null : _tasMap?.AddressForLine(loc.Value.TasLine);
+                target = slot is null ? null : (slot.Value.Address, loc!.Value.SourceLine);
+            }
+            else
+            {
+                target = _tasMap?.AddressForLine(line);
+            }
             if (target is null)
             {
                 results.Add(new JsonObject
@@ -331,6 +358,18 @@ public sealed class DebugSession
                 ["name"] = Path.GetFileName(_programPath),
                 ["path"] = _programPath,
             };
+            // Layer 2 ∘ Layer 1: a compiled kernel's frame reports the C/C++
+            // position its "# .loc" marker binds, not the .tas line.
+            (string File, int Line)? loc = _locMap?.LocForTasLine(line.Value);
+            if (loc is not null && File.Exists(loc.Value.File))
+            {
+                frame["line"] = loc.Value.Line;
+                frame["source"] = new JsonObject
+                {
+                    ["name"] = Path.GetFileName(loc.Value.File),
+                    ["path"] = loc.Value.File,
+                };
+            }
         }
         _dap.SendResponse(request, true, new JsonObject
         {
