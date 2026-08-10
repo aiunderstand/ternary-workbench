@@ -3,6 +3,7 @@
     <Project Path="src/TernaryWorkbench.CharTStringConverter/TernaryWorkbench.CharTStringConverter.csproj" />
     <Project Path="src/TernaryWorkbench.Cli/TernaryWorkbench.Cli.csproj" />
     <Project Path="src/TernaryWorkbench.Core/TernaryWorkbench.Core.csproj" />
+    <Project Path="src/TernaryWorkbench.DebugAdapter/TernaryWorkbench.DebugAdapter.csproj" />
     <Project Path="src/TernaryWorkbench.RebelAssembler/TernaryWorkbench.RebelAssembler.csproj" />
     <Project Path="src/TernaryWorkbench.Web/TernaryWorkbench.Web.csproj" />
   </Folder>

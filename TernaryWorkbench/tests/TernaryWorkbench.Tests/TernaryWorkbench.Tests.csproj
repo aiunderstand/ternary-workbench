@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TernaryWorkbench.CharTStringConverter\TernaryWorkbench.CharTStringConverter.csproj" />
     <ProjectReference Include="..\..\src\TernaryWorkbench.Core\TernaryWorkbench.Core.csproj" />
+    <ProjectReference Include="..\..\src\TernaryWorkbench.DebugAdapter\TernaryWorkbench.DebugAdapter.csproj" />
     <ProjectReference Include="..\..\src\TernaryWorkbench.RebelAssembler\TernaryWorkbench.RebelAssembler.csproj" />
   </ItemGroup>
 

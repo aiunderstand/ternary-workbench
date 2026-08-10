@@ -1,0 +1,154 @@
+{
+  "name": "vscode-rebel6",
+  "displayName": "REBEL-6 Debug",
+  "description": "Debug REBEL-6 balanced-ternary assembly (.tas) with trit-native register display, via the TernaryWorkbench DAP adapter and the R2R reference simulator.",
+  "publisher": "ternary-research-group",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Debuggers"
+  ],
+  "activationEvents": [
+    "onDebugResolve:rebel6"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "rebel6-asm",
+        "extensions": [
+          ".tas"
+        ],
+        "aliases": [
+          "REBEL-6 Assembly"
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "rebel6-asm"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "rebel6",
+        "label": "REBEL-6",
+        "languages": [
+          "rebel6-asm"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The .tas program to debug."
+              },
+              "simulator": {
+                "type": "string",
+                "description": "Path to the RV32IToREBEL simulator executable (defaults to the rebel6.simulatorPath setting)."
+              },
+              "port": {
+                "type": "number",
+                "description": "TCP port for the simulator's GDB RSP stub.",
+                "default": 3333
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Halt at the entry point before the first instruction retires (resethaltreq semantics).",
+                "default": true
+              },
+              "registerFormat": {
+                "type": "string",
+                "enum": [
+                  "trits",
+                  "decimal",
+                  "hex"
+                ],
+                "description": "Register rendering; \"trits\" shows balanced-ternary alongside decimal. Switch at runtime with \"format <fmt>\" in the debug console.",
+                "default": "trits"
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "port"
+            ],
+            "properties": {
+              "port": {
+                "type": "number",
+                "description": "TCP port of an already-running simulator started with --debug-port."
+              },
+              "program": {
+                "type": "string",
+                "description": "The .tas program the simulator is running (locates the source and its .tasmap)."
+              },
+              "registerFormat": {
+                "type": "string",
+                "enum": [
+                  "trits",
+                  "decimal",
+                  "hex"
+                ],
+                "default": "trits"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "rebel6",
+            "request": "launch",
+            "name": "Debug REBEL-6 program",
+            "program": "${file}",
+            "port": 3333,
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "REBEL-6: Launch .tas program",
+            "body": {
+              "type": "rebel6",
+              "request": "launch",
+              "name": "Debug REBEL-6 program",
+              "program": "^\"\\${file}\"",
+              "port": 3333,
+              "stopOnEntry": true
+            }
+          },
+          {
+            "label": "REBEL-6: Attach to simulator",
+            "body": {
+              "type": "rebel6",
+              "request": "attach",
+              "name": "Attach to REBEL-6 simulator",
+              "port": 3333,
+              "program": "^\"\\${file}\""
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "REBEL-6 Debug",
+      "properties": {
+        "rebel6.adapterPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the TernaryWorkbench.DebugAdapter executable (or its .dll, run through dotnet). Empty: \"TernaryWorkbench.DebugAdapter\" on PATH."
+        },
+        "rebel6.simulatorPath": {
+          "type": "string",
+          "default": "RV32IToREBEL",
+          "description": "Default RV32IToREBEL simulator executable for launch configurations that do not set \"simulator\"."
+        }
+      }
+    }
+  }
+}
