@@ -164,6 +164,11 @@ What P adds is the **reductions and quantization** those lanes feed:
 |--------|------------|---------|
 | TDOT.T rd, rs1, rs2 | `TMAC.T rd, rs1, rs2, X0` | packed ternary dot product |
 
+**QNT.T condition order — normative.** `QNT.T` evaluates its conditions in order: `rs1 > rs2 →
++1` first, then `rs1 < −rs2 → −1`, else 0. With the intended `rs2 ≥ 0` the conditions are
+disjoint and the order is unobservable; with a negative threshold (`rs2 < 0`) they overlap, and
+the greater-than test dominates by this order. Both reference libraries implement this.
+
 **The BitNet kernel.** A W1.58 × A1.58 GEMV inner loop — weights and activations both ternarized —
 is one `TMAC.T` per 24 multiply-accumulates:
 
