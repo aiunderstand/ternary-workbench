@@ -25,4 +25,15 @@ fi
 SIM_PID=$!
 trap 'kill $SIM_PID 2>/dev/null' EXIT
 
+# The simulator assembles the program before it listens; OpenOCD's
+# remote_bitbang adapter does not retry. Wait for the listening socket
+# WITHOUT connecting (a probe connection would consume the simulator's
+# single accept).
+for _ in $(seq 1 50); do
+    if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.1
+done
+
 openocd -f "$HERE/rebel6-sim.cfg" -f "$HERE/rebel6-sim-test.tcl"
