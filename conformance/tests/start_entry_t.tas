@@ -1,0 +1,17 @@
+# Entry contract: when the program defines _start, the executor must
+# enter there, not at main (rebel6-abi.md runtime contract; pre-linker
+# entry order is _start, then main, then address 0).
+#
+# main returns 5. Entered at _start, the jal/return sequence turns that
+# into exit 0. Under the old enter-at-main behavior, main's return would
+# reach the ra sentinel with a0 = 5 and the run would exit nonzero.
+# Pass: exit 0.
+	.text
+_start:
+	jal.t ra, main
+	addi.t a0, a0, -5
+	li.t a7, 93
+	ecall.t
+main:
+	li.t a0, 5
+	jalr.t zero, ra, 0

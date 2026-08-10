@@ -1,0 +1,17 @@
+# Entry contract, crt0-less flavor: a bare program whose main simply
+# RETURNS (no ECALL.T) must exit with main's return value in a0 - the
+# executor's ra sentinel stands in for crt0's exit(main()). This is what
+# lets plain int main() C/C++ behave identically on the host and here.
+#
+# main is a leaf (a jal would overwrite the sentinel in ra). It returns
+# its failure count. Pass: exit 0 (via return, not ecall - that is the
+# point of this test).
+	.text
+main:
+	li.t t0, 21
+	li.t t1, 21
+	li.t a0, 0
+	beq.t t0, t1, checks_ok
+	li.t a0, 1
+checks_ok:
+	jalr.t zero, ra, 0
