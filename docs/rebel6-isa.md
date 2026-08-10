@@ -1,6 +1,6 @@
 # REBEL-6 Instruction Set Reference
 
-REBEL-6 is specified across five documents:
+REBEL-6 is specified across six documents:
 
 | Document | Contents |
 |----------|----------|
@@ -9,6 +9,7 @@ REBEL-6 is specified across five documents:
 | [rebel6-extensions.md](rebel6-extensions.md) | Extensions: M, A, F, P, Ztl, Ztb, Zicsr, V (reserved) |
 | [rebel6-trifloat24.md](rebel6-trifloat24.md) | The 24-trit floating-point format |
 | [rebel6-abi.md](rebel6-abi.md) | ABI: register roles (xN ↔ X+N), calling convention, stack, crt0, semihosting |
+| [rebel6-debug.md](rebel6-debug.md) | External debug: Debug Mode, run control, triggers, Debug Module, JTAG DTM — invisible to hart software |
 
 ## Overview & Comparison with REBEL-2
 
@@ -586,7 +587,7 @@ entry, cause codes, privilege banks — are specified in the
 | FENCE.T | R | ++00 | -0 | | Ternary System | full memory fence (pred/succ fields reserved zero) |
 | WFI.T | R | ++00 | -+ | | Ternary System | wait for interrupt (see [platform](rebel6-platform.md#interrupts)) |
 | TRET.T | R | ++00 | +- | | Ternary System | trap return from the current privilege level's bank |
-| EBREAK.T | R | ++00 | +0 | | Ternary System | breakpoint trap (cause −10) |
+| EBREAK.T | R | ++00 | +0 | | Ternary System | breakpoint trap (cause −10); with a debugger attached, see [debug](rebel6-debug.md#ebreakt) |
 | ECALL.T | R | ++00 | ++ | | Ternary System | environment call (cause −7/−8/−9 by mode) |
 | NOP.T | I | 0000 | 00 | | Pseudo | no-op (all-zero 32 trits = ADDI.T X0, X0, 0) |
 | MV.T | I | 0000 | 00 | rd1, rs1 | Pseudo | rd1 = rs1 (ADDI.T rd1, rs1, 0) |

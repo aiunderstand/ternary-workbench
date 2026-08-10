@@ -413,6 +413,9 @@ An implementation populates the devices it has; the map fixes addresses so drive
 simulator agree. Sparse population costs nothing — see
 [Memory map](rebel6-isa.md#memory-map).
 
+The [external Debug Module](rebel6-debug.md#debug-module) is **not** memory-mapped: slots 11–15
+remain reserved, and no hart-visible state is added by debug support.
+
 ## Peripherals
 
 Detailed register maps for the blocks everything else depends on; sketches (register list, one line
