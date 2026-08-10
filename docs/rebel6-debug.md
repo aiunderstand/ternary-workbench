@@ -311,6 +311,34 @@ Recommendations for debugger implementations; nothing here binds an implementati
   so stock front-ends work, and report exhaustion when the 4 triggers are armed.
 - **Ternary rendering.** Balanced-ternary display (`+0−` strings) belongs in the tool (monitor
   commands, DAP formatters), not in the wire protocols.
+- **Source maps.** Two composable layers: the executor emits `<prog>.tasmap`
+  (`address<TAB>line`, addresses = instruction-slot indices) at assembly time — Layer 1; a
+  compiler's `-g` mode interleaves `# .loc file:line` comment directives in the `.tas` (comments
+  strip in every assembler, so the program is unchanged) — Layer 2. A DAP adapter composes
+  Layer 2 ∘ Layer 1 for source-level stepping of compiled programs.
+
+## Non-normative appendix: 0.1 field encodings
+
+The normative text pins DMI addresses, field *names*, and semantics; the bit positions below are
+what the 0.1 reference implementation (R2R simulator DM/DTM) and the conformance TCL use. RISC-V
+positions wherever a counterpart exists, so probe-side tooling ports by table edit.
+
+- **`dmcontrol`**: `dmactive` [0], `ndmreset` [1], `clrresethaltreq` [26], `setresethaltreq`
+  [27], `ackhavereset` [28], `resumereq` [30], `haltreq` [31], `hartsel` [25:16] hardwired 0.
+- **`dmstatus`**: `version` [3:0] = 7 (matches `dtmcs.version`), `authenticated` [7] = 1,
+  `any`/`allhalted` [8]/[9], `any`/`allrunning` [10]/[11], `any`/`allunavail` [12]/[13] (set
+  after the program runs to exit), `any`/`allresumeack` [16]/[17], `any`/`allhavereset`
+  [18]/[19].
+- **`abstractcs`**: `datacount` [3:0] = 1, `cmderr` [10:8] (W1C), `busy` [12], `progbufsize`
+  [28:24] = 0.
+- **`command`** (64-bit, like every DM register): `cmdtype` [63:56] — 0 = Access Register,
+  2 = Access Memory (RISC-V values); `write` [55]. Access Register: `regno` [15:0]. Access
+  Memory: `aspace` [54], `aamsize` [53:52] (0 tryte / 1 halfword / 2 word), `address` [51:0]
+  two's-complement sign-extended — the 64-bit command is what lets the address ride in the
+  command itself, keeping `datacount` = 1 with no second data register.
+- **`dcsr` view** (regno 0x0F00): `cause` [3:0], `ebreak+`/`ebreak0`/`ebreak−` [4]/[5]/[6],
+  `step` [7], `prv` [9:8] (0/1/2 = U/S/M).
+- **`tcontrol`**: `enable` [0], `type` [2:1] (0 execute / 1 load / 2 store / 3 load+store).
 
 ## Non-normative appendix: narrow-DMI compatibility mode
 
