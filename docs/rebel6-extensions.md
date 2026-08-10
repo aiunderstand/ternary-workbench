@@ -117,18 +117,21 @@ argument/return conventions are ABI matter ([rebel6-abi.md](rebel6-abi.md)).
 | FDIV.T | R | --+0 | ++ | rd1, rs1, rs2 | rd1 = rs1 ÷ rs2 |
 | FMA.T | D | +-+0 | -+ | rd1, rs1, rs2, rs3 | rd1 = rs1 × rs2 + rs3, single truncation |
 | FCMP.T | R | -0+0 | -- | rd1, rs1, rs2 | three-way compare → {−1, 0, +1}; see NaN note |
-| FCVT.W.T | R | -0+0 | -0 | rd1, rs1 | float → integer, truncated toward zero; saturates out of range; NaN → 0 |
-| FCVT.T.W | R | -0+0 | -+ | rd1, rs1 | integer → float, nearest representable (truncation), canonical |
+| FCVT.W.T | R | -0+0 | -0 | rd1, rs1 | float → integer, balanced truncation = round to **nearest** integer ([trifloat24 §4.4](rebel6-trifloat24.md)); out-of-range and ±Inf saturate; NaN → 0 |
+| FCVT.T.W | R | -0+0 | -+ | rd1, rs1 | integer → float, exact up to 18 significand trits, else truncation on the retained-trit grid ([trifloat24 §1.1](rebel6-trifloat24.md)); canonical |
 
 Normative behaviour, all operations: results are **canonical** per
 [trifloat24 §3.4](rebel6-trifloat24.md); underflow is **gradual** (never flush-to-zero); rounding
-is truncation (round-to-nearest by construction); NaN propagates; `FMA.T` performs one truncation
-on the exact product-sum. Negation needs no instruction — `STI.T` negates a trifloat24 exactly,
-including specials, because sign lives in the significand.
+is truncation — round-to-nearest **on the retained-trit grid**
+([trifloat24 §1.1](rebel6-trifloat24.md)); NaN propagates; `FMA.T` performs one truncation
+on the exact product-sum. Negation needs no dedicated instruction, but it is **significand-field**
+negation, not whole-word `STI.T` — negating the packed word would also negate the exponent and
+class fields (turning NaN into Inf). On a packed word, `v − 2·(S·3⁶)` negates in a short fixed
+sequence; in unpacked softfloat state, negating the significand register is a single `STI.T`.
 
 **NaN and comparison.** `FCMP.T` with a NaN operand returns 0. At the instruction level, unordered
 is therefore indistinguishable from equal; the softfloat library's comparison wrappers (`isnan`
-guards, one `LT.T` at offset +3 reads class-and-exponent) provide the IEEE-style unordered
+guards, one `LT.T` at offset +0 reads exponent-and-class) provide the IEEE-style unordered
 distinction. A dedicated classify instruction is deliberately absent — class inspection is already
 a single tryte load.
 
