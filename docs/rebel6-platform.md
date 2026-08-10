@@ -59,9 +59,9 @@ degrade accordingly (this is how the privilege profile falls out of the geometry
 | `X-4` | `mstatus` | M | Status: mode, IE/PIE/PP fields per level, vectoring — see below |
 | `X-5` | `mscratch` | M | Machine scratch |
 | `X-6` | `mie` | M | Interrupt-enable trits, indexed by cause magnitude |
-| `X-7` | `mip` | M | Interrupt-pending trits (largely read-only; reflects lines) |
+| `X-7` | `mip` | M | Interrupt-pending trits; trits driven by hardware interrupt lines are read-only views of those lines |
 | `X-8` | `mhartid` | M, read-only | Hart id |
-| `X-9` | `sstatus` | S | **View** of `mstatus` restricted to S-level fields |
+| `X-9` | `sstatus` | S | **View** of `mstatus` restricted to the S-level fields {`SIE`, `SPIE`, `SPP`, `SVECT`} |
 | `X-10` | `mcycle` | M/S/U read | Cycle counter — streaming-class, hardware-written |
 | `X-11` | `minstret` | M/S/U read | Instructions-retired counter — streaming-class |
 | `X-12 … X-14` | `stream0 … stream2` | M/S/U read | Streaming registers (minimum 3; see [Streaming registers](#streaming-registers)) |
@@ -76,8 +76,13 @@ degrade accordingly (this is how the privilege profile falls out of the geometry
 | `X-23` … | platform | variant-defined | Additional streaming registers, platform state |
 
 `sstatus`, `sie` and `sip` are **views, not copies** — reads return the masked source register,
-writes update only the S-visible fields. This mirrors RISC-V's definition of the s-registers as
-restricted windows onto machine state and keeps the no-shadow-state property.
+writes update only the S-visible fields. `sstatus` is a **live view** of exactly
+`mstatus.{SIE, SPIE, SPP, SVECT}`: reads return those fields (0 elsewhere), writes update only
+them. This mirrors RISC-V's definition of the s-registers as restricted windows onto machine state
+and keeps the no-shadow-state property.
+
+Indices from `X-23` down that a variant does **not** define are plain storage with minimum
+privilege M — ordinary read/write registers at M, −11 below M, with no hardware behaviour attached.
 
 **Compact layout (`r6-mp27` only).** The 13 negative indices hold a merged, M-only set:
 
@@ -95,7 +100,11 @@ On the compact layout the `mie`/`mip` trit vectors and the hart id are **fields 
 minimum privilege (M for the M-set and delegation registers, S for the S-set, any for
 counter/streaming reads). A violating access raises exception −11. Positive indices are never
 checked — the check is off the hot path for all ordinary computation. Writes to any streaming-class
-register (counters included) raise −11 at every privilege level.
+register (counters included) raise −11 at every privilege level, and so do writes to read-only
+system registers (`mhartid`).
+
+**Reset.** All system registers reset to 0, with one exception: `mstatus.MODE` resets to `+` — a
+hart comes out of reset in M.
 
 ## Privilege
 
@@ -126,8 +135,8 @@ only on trap entry and `TRET.T`.
 | 4 | `SIE` | supervisor interrupt enable |
 | 5 | `SPIE` | previous `SIE` |
 | 6 | `SPP` | previous privilege on trap entry to S |
-| 7 | `MVECT` | M vectoring: 0 = direct, `+` = vectored |
-| 8 | `SVECT` | S vectoring: 0 = direct, `+` = vectored |
+| 7 | `MVECT` | M vectoring: 0 = direct, `+` = vectored; `−` behaves as direct (0) |
+| 8 | `SVECT` | S vectoring: 0 = direct, `+` = vectored; `−` behaves as direct (0) |
 | 9–11 | — | reserved |
 | 12–23 | — | reserved (standard layout); `mie`/`mip`/`hartid` fields (compact layout) |
 
@@ -167,6 +176,11 @@ handler:
 | | | | `−12` | illegal CSR access (Zicsr) |
 
 Cause 0 means "no trap" and is the reset value of `mcause`/`scause`.
+
+**Semihosting precedence.** `ECALL.T` from M with `a7` ∈ {63, 64, 93, 214} is handled by the
+execution environment without trap entry — no cause is recorded, no handler runs. Every other
+`ECALL.T` — any other `a7` value, or any call from S or U — takes the environment-call trap for
+its level (−7/−8/−9).
 
 ### Trap entry
 
@@ -268,6 +282,12 @@ planned** — a Linux bring-up on current REBEL-6 is either a native ternary por
 
 ## Interrupts
 
+Two delivery rules are normative across all sources. **Order:** when multiple interrupts are
+pending and deliverable for a hart, they are taken in the order software (`+1`), then timer
+(`+2`), then external (`+3`). **Privilege gating:** an interrupt targeting M is taken when the
+hart is executing below M regardless of the global `MIE`; an interrupt delegated to S is gated
+on `SIE`.
+
 ### CLINT-analog
 
 One hart-local interrupt block, register layout shaped after the RISC-V CLINT so existing drivers
@@ -277,7 +297,7 @@ device base ([MMIO map](#mmio)). `H` = hart count.
 | Offset | Register | Access | Function |
 |--------|----------|--------|----------|
 | +0 | `MTIME` | RO | free-running platform counter, one word (wraps modulo 3²⁴; at 10 MHz ≈ 327 days) |
-| +4 + 4·h | `MTIMECMP[h]` | RW | timer compare, hart *h*: pending `+2` on hart *h* while `MTIME − MTIMECMP[h] ≥ 0` (wrap-aware signed compare) |
+| +4 + 4·h | `MTIMECMP[h]` | RW | timer compare, hart *h*: pending `+2` on hart *h* while `MTIME − MTIMECMP[h] ≥ 0` (wrap-aware signed compare); resets to the maximum word value, so the timer is quiet at boot |
 | +400 + h | `MSIP[h]` | RW, tryte | write `+` → raise software interrupt `+1` on hart *h*; write `0` → clear |
 
 ### TIC — ternary interrupt controller
@@ -305,7 +325,9 @@ Stalls the hart until an interrupt becomes both pending and individually enabled
 (`mip ∧ mie ≠ 0`), **regardless of the global `MIE`** — the RISC-V WFI contract, which enables the
 "disable globally, WFI, then handle" idle idiom. Resumes at PC+1; if the global enable and level
 permit, the trap is taken first. Implementations may treat `WFI.T` as a NOP-with-hint; low-power
-sleep is the intent.
+sleep is the intent. On the simulator profile the **halting reading is normative**: `WFI.T`
+suspends execution and resumes when any enabled interrupt is pending (`mip ∧ mie ≠ 0`),
+regardless of the global enable.
 
 ## Streaming registers
 
@@ -334,6 +356,17 @@ Semantics — normative:
   reads them is differentially testable. This is a conformance requirement on simulators, not
   hardware.
 
+**Replay-script format — normative.** The replay script is a line-based text file. `#` begins a
+comment (to end of line); blank lines are ignored. Every other line is one entry,
+`<stream-index> <at-count> <value>`, meaning: stream *stream-index* returns *value* for every
+read at or after retired-instruction count *at-count* — the same count a read of `minstret` at
+that point returns — until that stream's next entry takes effect. When entries for the same
+stream share an at-count, the later entry wins. Values must fit the balanced 24-trit range. Only
+the stream registers (`X-12 … X-14`) are scriptable; the hardware-written streaming counters
+(`mcycle`, `minstret`) are not. Before a stream's first entry — or with no script loaded — reads
+of that stream return 0. Replay is deterministic: the same program with the same script must
+produce identical execution — final `minstret`, output, and exit status.
+
 ## Memory consistency
 
 - **Single hart:** program order, full stop. The MVP in-order MCU satisfies everything below
@@ -358,7 +391,7 @@ see [Memory map](rebel6-isa.md#memory-map)) holds peripheral registers.
 reordering, elision, merging or speculation; tryte-granular access (`LT.T`/`ST.T`) is permitted and
 is the natural width for control registers; **misaligned MMIO access is an error** (misaligned
 access, cause −3/−4), not implementation-defined; unpopulated MMIO addresses fault on access
-(cause −5/−6).
+(cause −5/−6); **stores to read-only device registers raise store access fault (−6)**.
 
 **Device windows.** Each device occupies one or more **3⁸ = 6561-tryte** slots allocated from the
 least-negative end of the region. Slot *n* spans addresses
@@ -464,9 +497,14 @@ TIC source 6 on DONE.
 
 The minimal device set a REBEL-6 simulator implements for toolchain and benchmark work — a strict
 subset of this map: **CLINT** (`MTIME` at slot 0), **SIMCON** (slot 9: +0 `CONOUT` W tryte, byte
-0…255 to host console; +1 `CONIN` RO; +2 `STAT` t0 AVAIL), **SIMFB** (slot 10 control: +0 `EN`,
-+1 `MODE` — `0` direct 729-value, `+` 256-entry palette at +100…; slots 16–25: 320×200 pixel
-trytes, row-major). Semihosted `write`/`exit`/`sbrk` go through `ECALL.T` per the ABI's semihosting
+0…255 to host console; +1 `CONIN` RO — returns −1 when no input is available, `STAT`'s AVAIL trit
+reflects availability; +2 `STAT` t0 AVAIL), **SIMFB** (slot 10 control: +0 `EN`, +1 `MODE` — `0`
+direct 729-value, `+` 256-entry palette at +100…; slots 16–25: 320×200 pixel trytes, row-major).
+SIMFB rulings, normative: in direct mode the tryte value maps linearly to gray; out-of-range
+palette indices clamp; the frame dump is independent of the enable register; the pixel array
+occupies slots 16–25 ascending from the window's lowest address, row-major 320×200 (64,000
+trytes), and the trailing trytes of the window are unpopulated (faulting per the MMIO rule).
+Semihosted `write`/`exit`/`sbrk` go through `ECALL.T` per the ABI's semihosting
 convention; the framebuffer and timer are MMIO because a syscall per pixel is not viable.
 
 ## OS enablement
