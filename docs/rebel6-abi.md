@@ -147,10 +147,19 @@ picolibc/newlib stubs port unchanged:
 
 | Call | `a7` | Arguments | Returns |
 |------|------|-----------|---------|
+| `openat` | 56 | dirfd (`AT_FDCWD` = −100 only), path (NUL-terminated, one byte/tryte), flags (Linux values), mode | fd (≥3) |
+| `close` | 57 | fd | 0 |
+| `lseek` | 62 | fd, offset, whence (0 SET / 1 CUR / 2 END) | new offset |
 | `read` | 63 | fd, buffer (D-space address), count (trytes) | trytes read |
 | `write` | 64 | fd, buffer, count | trytes written |
 | `exit` | 93 | status | does not return — halts |
-| `brk`/`sbrk` | 214 | new break (0 queries) | current break |
+| `brk` | 214 | new break (0 queries) | break after the call (Linux semantics: unchanged on failure) |
+
+File descriptors: 0/1/2 are the host console; `openat` hands out guest fds from 3 and `read`/
+`write` accept them (Doom plan T1-M0 extension — `openat` takes a fourth argument in `a3`,
+the only semihosting call that does). `brk` is real: the break starts at `__heap_start` (the
+first address past the static data image) and may grow to the top of data memory minus a
+3^13-tryte stack guard.
 
 Anything else returns −38 (`ENOSYS`). The framebuffer, timer and input device are **not**
 semihosted — they are [MMIO](rebel6-platform.md#mmio); a syscall per pixel is not viable.

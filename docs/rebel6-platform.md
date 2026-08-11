@@ -177,7 +177,7 @@ handler:
 
 Cause 0 means "no trap" and is the reset value of `mcause`/`scause`.
 
-**Semihosting precedence.** `ECALL.T` from M with `a7` ∈ {63, 64, 93, 214} is handled by the
+**Semihosting precedence.** `ECALL.T` from M with `a7` ∈ {56, 57, 62, 63, 64, 93, 214} is handled by the
 execution environment without trap entry — no cause is recorded, no handler runs. Every other
 `ECALL.T` — any other `a7` value, or any call from S or U — takes the environment-call trap for
 its level (−7/−8/−9).
@@ -502,7 +502,11 @@ The minimal device set a REBEL-6 simulator implements for toolchain and benchmar
 subset of this map: **CLINT** (`MTIME` at slot 0), **SIMCON** (slot 9: +0 `CONOUT` W tryte, byte
 0…255 to host console; +1 `CONIN` RO — returns −1 when no input is available, `STAT`'s AVAIL trit
 reflects availability; +2 `STAT` t0 AVAIL), **SIMFB** (slot 10 control: +0 `EN`, +1 `MODE` — `0`
-direct 729-value, `+` 256-entry palette at +100…; slots 16–25: 320×200 pixel trytes, row-major).
+direct 729-value, `+` 256-entry palette at +100…; +2 `FLIP` W — provisional, Doom plan T1-M1:
+writing `+` commits the frame (the simulator dumps it host-side and logs the retired-instruction
+delta since the previous flip), other values are accepted without commit, reads return 0 like
+`CONOUT`; final semantics land with the T1-M2 SIMFB color ruling; slots 16–25: 320×200 pixel
+trytes, row-major).
 SIMFB rulings, normative: in direct mode the tryte value maps linearly to gray; out-of-range
 palette indices clamp; the frame dump is independent of the enable register; the pixel array
 occupies slots 16–25 ascending from the window's lowest address, row-major 320×200 (64,000
