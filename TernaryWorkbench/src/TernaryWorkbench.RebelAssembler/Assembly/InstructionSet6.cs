@@ -102,10 +102,41 @@ internal static class InstructionSet6
     }
 
     // -------------------------------------------------------------------------
-    // Register dictionary: X-364 … X364 (X-0 omitted, only X0)
+    // Register dictionary: X-364 … X364 (X-0 omitted, only X0), plus the ABI
+    // names (docs/rebel6-abi.md, identity map xN ↔ X+N) and the platform
+    // system/streaming register names (docs/rebel6-platform.md, standard
+    // layout X-1 … X-22). `gp` is deliberately absent: the ABI retires it
+    // (the zero window replaces it; X3 is a reserved platform register).
     // -------------------------------------------------------------------------
 
     public static readonly Dictionary<string, string> RegisterDictionary = BuildRegisterDictionary();
+
+    private static IEnumerable<(string Name, int Index)> AbiRegisterNames()
+    {
+        yield return ("zero", 0);
+        yield return ("ra", 1);
+        yield return ("sp", 2);
+        yield return ("tp", 4);
+        for (int i = 0; i <= 2; i++)  yield return ($"t{i}", 5 + i);
+        yield return ("s0", 8);
+        yield return ("fp", 8);
+        yield return ("s1", 9);
+        for (int i = 0; i <= 7; i++)  yield return ($"a{i}", 10 + i);
+        for (int i = 2; i <= 11; i++) yield return ($"s{i}", 16 + i);
+        for (int i = 3; i <= 6; i++)  yield return ($"t{i}", 25 + i);
+        // Extended pool: e0 = X32 up to the top of the architectural window (r6-single).
+        for (int i = 0; i <= 364 - 32; i++) yield return ($"e{i}", 32 + i);
+    }
+
+    private static IEnumerable<(string Name, int Index)> PlatformRegisterNames() =>
+    [
+        ("mtvec", -1), ("mepc", -2), ("mcause", -3), ("mstatus", -4), ("mscratch", -5),
+        ("mie", -6), ("mip", -7), ("mhartid", -8), ("sstatus", -9),
+        ("mcycle", -10), ("minstret", -11),
+        ("stream0", -12), ("stream1", -13), ("stream2", -14),
+        ("stvec", -15), ("sepc", -16), ("scause", -17), ("sscratch", -18),
+        ("medeleg", -19), ("mideleg", -20), ("sie", -21), ("sip", -22),
+    ];
 
     private static Dictionary<string, string> BuildRegisterDictionary()
     {
@@ -120,6 +151,10 @@ internal static class InstructionSet6
             else
                 dict[$"X{n}"] = trits; // e.g. "X-1", "X-364"
         }
+        foreach (var (name, index) in AbiRegisterNames())
+            dict[name] = ToBalancedTernaryN(index, 6);
+        foreach (var (name, index) in PlatformRegisterNames())
+            dict[name] = ToBalancedTernaryN(index, 6);
         return dict;
     }
 
@@ -131,12 +166,18 @@ internal static class InstructionSet6
     /// Converts an integer to a balanced-ternary string of exactly <paramref name="width"/> trits
     /// (most-significant trit first).
     /// </summary>
-    public static string ToBalancedTernaryN(int value, int width)
+    public static string ToBalancedTernaryN(int value, int width) =>
+        ToBalancedTernaryN((long)value, width);
+
+    /// <summary>
+    /// 64-bit variant: a 24-trit immediate spans ±141,214,768,240, well past <see cref="int"/>.
+    /// </summary>
+    public static string ToBalancedTernaryN(long value, int width)
     {
         var digits = new char[width];
         for (int i = width - 1; i >= 0; i--)
         {
-            int rem = ((value % 3) + 3) % 3; // ensure non-negative: 0, 1, or 2
+            long rem = ((value % 3) + 3) % 3; // ensure non-negative: 0, 1, or 2
             if (rem == 2)      { digits[i] = '-'; value = (value + 1) / 3; }
             else if (rem == 1) { digits[i] = '+'; value = (value - 1) / 3; }
             else               { digits[i] = '0'; value /= 3; }
