@@ -408,6 +408,7 @@ slot 0 (CLINT) spans −47,071,595,974 … −47,071,589,414.
 | 4 | TPWM0 | | 10 | SIMFB control |
 | 5 | SPI0 | | 11–15 | reserved |
 | | | | 16–25 | SIMFB pixel array (320×200 trytes) |
+| | | | 26 | SIMKEY (simulator keyboard FIFO) |
 
 An implementation populates the devices it has; the map fixes addresses so drivers and the
 simulator agree. Sparse population costs nothing — see
@@ -502,15 +503,33 @@ The minimal device set a REBEL-6 simulator implements for toolchain and benchmar
 subset of this map: **CLINT** (`MTIME` at slot 0), **SIMCON** (slot 9: +0 `CONOUT` W tryte, byte
 0…255 to host console; +1 `CONIN` RO — returns −1 when no input is available, `STAT`'s AVAIL trit
 reflects availability; +2 `STAT` t0 AVAIL), **SIMFB** (slot 10 control: +0 `EN`, +1 `MODE` — `0`
-direct 729-value, `+` 256-entry palette at +100…; +2 `FLIP` W — provisional, Doom plan T1-M1:
-writing `+` commits the frame (the simulator dumps it host-side and logs the retired-instruction
-delta since the previous flip), other values are accepted without commit, reads return 0 like
-`CONOUT`; final semantics land with the T1-M2 SIMFB color ruling; slots 16–25: 320×200 pixel
-trytes, row-major).
-SIMFB rulings, normative: in direct mode the tryte value maps linearly to gray; out-of-range
-palette indices clamp; the frame dump is independent of the enable register; the pixel array
-occupies slots 16–25 ascending from the window's lowest address, row-major 320×200 (64,000
-trytes), and the trailing trytes of the window are unpopulated (faulting per the MMIO rule).
+direct 729-value, `+` palette; +2 `FLIP` W; palette at +100…+867; slots 16–25: 320×200 pixel
+trytes, row-major), and **SIMKEY** (slot 26: +0 `EVENT` RO, +1 `STAT` RO).
+
+SIMFB rulings (T1-M2, normative — this palette/FLIP model is what the T3-H3 VGA/LCD scanout
+implements): palette entries are **3 trytes each — R, G, B** — 256 entries at control +100…+867,
+entry *i* at +100 + 3·*i*. Each component tryte maps linearly −364…+364 → intensity 0…255, the
+same map direct mode applies to the pixel tryte (gray). In palette mode the pixel tryte is the
+entry index 0…255; out-of-range indices clamp. `FLIP` (+2) is the frame-commit register, final
+semantics: writing `+` presents the current pixel array through the current palette as one frame
+(host-side: live window and/or numbered PPM dump, plus the retired-instructions-since-last-flip
+log); `0`/`−` writes are accepted without commit; reads return 0 (the `CONOUT` rule). The frame
+dump is independent of the enable register; the pixel array occupies slots 16–25 ascending from
+the window's lowest address, row-major 320×200 (64,000 trytes), and the trailing trytes of the
+window are unpopulated (faulting per the MMIO rule).
+
+SIMKEY rulings (T1-M2, normative — the FPGA button/PS-2 input path presents the same event
+format): a keyboard-event FIFO exploiting the balanced tryte. +0 `EVENT` (RO tryte) pops the
+oldest event: **+code = key press, −code = key release, 0 = FIFO empty** — the sign is the
+make/break flag, so one tryte read drains one event with no side registers. +1 `STAT` (RO
+tryte): t0 `AVAIL` (FIFO non-empty), t1 `OVERRUN` — sticky, set when an event is dropped on a
+full FIFO (depth ≥ 64, the newest event drops), cleared by reading `STAT`. All writes into the
+window fault. Keycodes 1…255 follow the classic DOS/Doom convention: ASCII for printable keys
+(letters lowercase), Tab 9, Enter 13, Escape 27, Backspace 127, and the extended 0x80+scan set —
+Ctrl 157, left/up/right/down arrows 172/173/174/175, Shift 182, Alt 184, F1…F12 187…198, Pause
+255. Console escape codes were rejected as the input path: terminals cannot report key-release,
+and held-key game movement needs make/break.
+
 Semihosted `write`/`exit`/`sbrk` go through `ECALL.T` per the ABI's semihosting
 convention; the framebuffer and timer are MMIO because a syscall per pixel is not viable.
 
