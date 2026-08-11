@@ -14,6 +14,8 @@ namespace TernaryWorkbench.RebelAssembler;
 ///   <item>122 instruction patterns: 50 ternary-native base + 27 binary (RV32I-compatible) + 37 extension (M, A, F, P, Ztl, Ztb, Zicsr — see docs/rebel6-extensions.md) + 8 pseudo patterns (NOP.T, MV.T, TDOT.T, NTI.T, PTI.T, MTI.T, CYU.T, CYD.T) + 13 operand-rewrite pseudos (BGT.T, BLE.T, SWAP.T, CYCLEUP.T, SL{N,Z,P}.T, SLI{N,Z,P}.T, SRI{N,Z,P}.T). 8 instruction formats: R, I, B, D, X (4-trit opcode), G, Y (2-trit opcode), L (RV32I pass-through).</item>
 ///   <item><b>ROT.T</b> is the cyclic shift (renamed from SC.T; docs/rebel6-isa.md errata E-3) — <b>SC.T</b> is the A extension's store-conditional. The A extension assembles the bare (relaxed) forms; aq/rl suffixed forms are reserved.</item>
 ///   <item><b>Zicsr</b> CSR numbers accept standard names (mstatus, mepc, …) or plain numerics; the zimm of the *I forms is written as a number and disassembles as the register name with the same encoding.</item>
+///   <item><b>Register names</b>: architectural (<c>X0</c>, <c>X-11</c>, …), ABI (docs/rebel6-abi.md identity map — <c>zero</c>, <c>ra</c>, <c>sp</c>, <c>tp</c>, <c>t0</c>–<c>t6</c>, <c>s0</c>–<c>s11</c>/<c>fp</c>, <c>a0</c>–<c>a7</c>, extended pool <c>e0</c>–<c>e332</c>; <c>gp</c> is retired and rejected) and platform system/streaming names (docs/rebel6-platform.md standard layout — <c>mtvec</c> … <c>sip</c> at <c>X-1</c> … <c>X-22</c>, including <c>mcycle</c>, <c>minstret</c>, <c>stream0</c>–<c>stream2</c>).</item>
+///   <item><b>Sections and data</b> (<see cref="AssembleProgram"/>): <c>.text</c>/<c>.data</c>/<c>.word</c>/<c>.zero</c>. Code labels resolve to instruction indices, data labels to tryte addresses (flat pre-linker layout after the 4-tryte-aligned instruction image, matching the R2R reference toolchain). <c>LI.T</c>/<c>LWA.T</c>/<c>SWA.T</c> take a symbol's absolute value; <c>JAL.T</c>/<c>AIPC.T</c> are PC-relative and reject data symbols (Harvard split).</item>
 ///   <item><b>12-trit immediates</b> (±265720) throughout I-type and B-type, giving the RV32I-parity binary instructions their full 12-bit immediate range. I-type splits it around the destination register (rs2 slot = imm[11:6], rd2 slot = imm[5:0]); B-type has no destination, so its 12 trits are contiguous across rd1+rd2.</item>
 ///   <item><b>Three-way branches</b> (B-type field read as two 6-trit displacements, ±364 each): <c>BCGS.T rs1, rs2, off1, off2</c> — greater → PC+off1, smaller → PC+off2, equal → PC+1; and <c>BCEG.T rs1, rs2, off1, off2</c> — equal → PC+off1, greater → PC+off2, smaller → PC+1. Two-way branches BEQ.T, BNE.T, BLT.T, BGE.T keep the full 12 trits; BGT.T and BLE.T are operand-swap pseudo-instructions. See docs/rebel6-isa.md errata E-1.</item>
 ///   <item><b>Indexed vs absolute word access</b>: <c>LW.T rd1, rs1, imm12</c> / <c>SW.T rs1, rs2, imm12</c> address rs1+imm12 (I/B-type), while <c>LWA.T rd1, imm24</c> / <c>SWA.T rs1, imm24</c> address imm24 directly with no base register (G/Y-type). The paper names both pairs lw.t/sw.t; the absolute forms are renamed. See docs/rebel6-isa.md errata E-2.</item>
@@ -40,18 +42,25 @@ public static class Rebel6Assembler
     // -------------------------------------------------------------------------
 
     /// <summary>
+    /// Assemble a full REBEL-6 program: a <c>.text</c> instruction stream plus an optional
+    /// <c>.data</c> image built from <c>.word</c> and <c>.zero</c> directives. Labels resolve
+    /// across sections — code labels to instruction indices (I-space), data labels to tryte
+    /// addresses (D-space, flat pre-linker layout after the instruction image, matching the
+    /// R2R reference toolchain). Register operands accept the architectural <c>X</c> names,
+    /// the ABI names (<c>sp</c>, <c>a0</c>, <c>t0</c>, …, extended pool <c>e0</c>…) and the
+    /// platform system-register names (<c>mtvec</c> … <c>sip</c>, <c>mcycle</c>,
+    /// <c>minstret</c>, <c>stream0</c>–<c>stream2</c>).
+    /// </summary>
+    public static Rebel6Program AssembleProgram(string assembly) =>
+        ProgramAssembler6.Assemble(assembly);
+
+    /// <summary>
     /// Assemble a block of REBEL-6 assembly into a list of <see cref="AssembledInstruction"/> records.
-    /// Labels are resolved within the block.
+    /// Labels are resolved within the block. Directives are accepted (see
+    /// <see cref="AssembleProgram"/>); only the instruction stream is returned.
     /// </summary>
     public static IReadOnlyList<AssembledInstruction> AssembleInstructions(string assembly) =>
-        PageAssembler.AssemblePage(
-            assembly,
-            padPage: false,
-            InstructionSet6.DefaultPaddingInstruction,
-            InstructionSet6.Patterns,
-            (inst, labels, pats, currentIdx) => InstructionEncoder6.Translate(inst, labels, pats, currentIdx),
-            InstructionSet6.AddressSpace,
-            InstructionSet6.RegisterDictionary);
+        ProgramAssembler6.Assemble(assembly).Instructions;
 
     /// <summary>
     /// Translate a single REBEL-6 assembly instruction string into a 32-trit machine code string.

@@ -165,12 +165,16 @@ internal static class InstructionEncoder6
         bool hasSrcReg = pattern.AssemblyOperands.Count > 0
             && string.Equals(pattern.AssemblyOperands[0], Rs1, StringComparison.OrdinalIgnoreCase);
 
+        // JAL.T (+-) and AIPC.T (0-) are PC-relative by definition (R_REBEL6_PCREL24);
+        // LI.T, LWA.T and SWA.T take a symbol's absolute value (R_REBEL6_ABS24_*).
+        bool pcRelative = pattern.Opcode is "+-" or "0-";
+
         if (hasDestReg)
         {
             // G-type: imm[23:12](12) | rd1(6) | imm[11:0](12) | opc(2)
             var rd1Trits = ParseRegisterOrTrit(operands[0], lineNumber);
             var immTok   = operands[1];
-            var imm24    = ParseLongImmediate(immTok, 24, lineNumber, labels, currentIndex);
+            var imm24    = ParseLongImmediate(immTok, 24, lineNumber, labels, currentIndex, pcRelative);
             return imm24[0..12] + rd1Trits + imm24[12..24] + pattern.Opcode;
         }
         else if (hasSrcReg)
@@ -178,7 +182,7 @@ internal static class InstructionEncoder6
             // Y-type: rs1(6) | imm[23:0](24) | opc(2)
             var rs1Trits = ParseRegisterOrTrit(operands[0], lineNumber);
             var immTok   = operands[1];
-            var imm24    = ParseLongImmediate(immTok, 24, lineNumber, labels, currentIndex);
+            var imm24    = ParseLongImmediate(immTok, 24, lineNumber, labels, currentIndex, pcRelative);
             return rs1Trits + imm24 + pattern.Opcode;
         }
         else
@@ -232,11 +236,13 @@ internal static class InstructionEncoder6
 
         if (labels != null && labels.TryGetValue(token, out var label))
         {
-            int offset = label.InstructionIndex - currentIndex;
-            if (offset < -max || offset > max)
+            // Code label: PC-relative displacement (PCREL12). Data label: absolute tryte
+            // address (DISP12 — a constant load/store displacement).
+            int labelValue = label.IsData ? label.InstructionIndex : label.InstructionIndex - currentIndex;
+            if (labelValue < -max || labelValue > max)
                 throw new InvalidOperationException(
-                    $"Reference to label '{token}' on line {lineNumber} produces offset {offset} which is outside the permitted range (-{max}..{max}).");
-            return ToBalancedTernaryN(offset, 12);
+                    $"Reference to label '{token}' on line {lineNumber} produces value {labelValue} which is outside the permitted range (-{max}..{max}).");
+            return ToBalancedTernaryN(labelValue, 12);
         }
 
         if (TryParseTritString(token, 12, out var trits))
@@ -264,6 +270,9 @@ internal static class InstructionEncoder6
         // Label reference
         if (labels != null && labels.TryGetValue(token, out var label))
         {
+            if (label.IsData)
+                throw new InvalidOperationException(
+                    $"Data symbol '{token}' on line {lineNumber} does not fit a 6-trit register/offset field. Load its address with LI.T, or address it absolutely with LWA.T/SWA.T.");
             if (isBranchOffset)
             {
                 // PC-relative: offset = target_index - current_index
@@ -322,15 +331,23 @@ internal static class InstructionEncoder6
 
     private static string ParseLongImmediate(
         string token, int width, int lineNumber,
-        IReadOnlyDictionary<string, LabelDefinition>? labels, int currentIndex)
+        IReadOnlyDictionary<string, LabelDefinition>? labels, int currentIndex,
+        bool pcRelative = false)
     {
         token = token.Trim();
 
         if (labels != null && labels.TryGetValue(token, out var label))
         {
-            // PC-relative offset for jal.t, absolute index for others — use raw index as value
-            int val = label.InstructionIndex - currentIndex;
-            return ToBalancedTernaryN(val, width);
+            if (pcRelative)
+            {
+                if (label.IsData)
+                    throw new InvalidOperationException(
+                        $"PC-relative reference to data symbol '{token}' on line {lineNumber}: under the Harvard split, PC-relative addressing reaches code symbols only (docs/rebel6-isa.md, Linking).");
+                return ToBalancedTernaryN(label.InstructionIndex - currentIndex, width);
+            }
+            // Absolute: a code label yields its instruction index (I-space), a data label
+            // its tryte address (D-space) — the ABS24_CODE / ABS24_DATA split.
+            return ToBalancedTernaryN(label.InstructionIndex, width);
         }
 
         if (TryParseTritString(token, width, out var trits))
@@ -343,7 +360,7 @@ internal static class InstructionEncoder6
             if (numericValue < -maxVal || numericValue > maxVal)
                 throw new InvalidOperationException(
                     $"Immediate {numericValue} is outside the {width}-trit range on line {lineNumber}.");
-            return ToBalancedTernaryN((int)numericValue, width);
+            return ToBalancedTernaryN(numericValue, width);
         }
 
         throw new InvalidOperationException(

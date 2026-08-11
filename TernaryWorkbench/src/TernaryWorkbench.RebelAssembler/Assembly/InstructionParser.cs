@@ -122,7 +122,7 @@ internal static class InstructionParser
         return first >= 0 ? line[..first] : line;
     }
 
-    private static bool IsValidLabel(string label)
+    internal static bool IsValidLabel(string label)
     {
         if (string.IsNullOrEmpty(label)) return false;
         if (!(char.IsLetter(label[0]) || label[0] == '_')) return false;

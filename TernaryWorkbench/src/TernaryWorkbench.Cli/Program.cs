@@ -473,9 +473,15 @@ static int RunRebel6(string[] rebel6Args)
             }
             try
             {
-                var instructions = Rebel6Assembler.AssembleInstructions(input);
-                foreach (var inst in instructions)
+                var program = Rebel6Assembler.AssembleProgram(input);
+                foreach (var inst in program.Instructions)
                     Console.WriteLine(inst.MachineCode);
+                if (program.Data.Count > 0)
+                {
+                    Console.WriteLine($"# data (base tryte address {program.DataBaseAddress})");
+                    foreach (var datum in program.Data)
+                        Console.WriteLine($"{datum.Address}: {string.Join(" ", datum.Trytes)}");
+                }
                 return 0;
             }
             catch (InvalidOperationException ex)
@@ -601,6 +607,13 @@ static void PrintRebel6Help()
                       Ternary (.t), binary (RV32I-compatible), and extension mnemonics
                       (M, A, F, P, Ztl, Ztb, Zicsr) are all assemblable; CSR operands
                       accept standard names (mstatus, mepc, ...) or numbers.
+                      Registers accept architectural names (X0, X-11, ...), ABI names
+                      (zero, ra, sp, a0-a7, s0-s11/fp, t0-t6, e0...) and platform
+                      system-register names (mtvec ... sip, mcycle, minstret,
+                      stream0-stream2). Sections and data directives are supported:
+                      .text, .data, .word <value|label>, .zero <trytes>. Data trytes
+                      are printed after the instruction stream, little-endian, at flat
+                      pre-linker addresses following the instruction image.
                       Pass '-' to read from stdin.
           <code>      A 32-character string of balanced-ternary trits (+, -, 0).
                       Pass '-' to read one code per line from stdin.
