@@ -41,3 +41,6 @@ sysinfo.txt
 
 # Generated copies of docs/ for Blazor static web assets
 TernaryWorkbench/src/TernaryWorkbench.Web/wwwroot/docs/
+
+# Generated source maps from REBEL-6 debug runs (RV32IToREBEL --debug-port)
+*.tasmap
