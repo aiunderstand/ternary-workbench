@@ -1,0 +1,63 @@
+# Extended register pool: e0 .. e332 = X32 .. X364 (rebel6-abi.md
+# "Register roles"; plan v5 A4 "extended pool"). The register fields are
+# 6 trits, so extended indices need no new encoding - only names. All
+# caller-saved by ABI rule; hardware-wise they are ordinary registers.
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: e0 holds a full-range value
+	li.t a0, 1
+	li.t e0, 141214768240
+	li.t t0, 141214768240
+	bne.t e0, t0, fail
+	# check 2: bottom and top of the pool are distinct registers
+	li.t a0, 2
+	li.t e0, 111
+	li.t e332, 222
+	li.t t0, 111
+	bne.t e0, t0, fail
+	li.t t0, 222
+	bne.t e332, t0, fail
+	# check 3: eN and its X(32+N) spelling are the SAME register
+	li.t a0, 3
+	li.t e7, -12345
+	li.t t0, -12345
+	bne.t x39, t0, fail
+	li.t x40, 777
+	li.t t0, 777
+	bne.t e8, t0, fail
+	# check 4: extended registers feed ordinary arithmetic
+	li.t a0, 4
+	li.t e100, 30
+	li.t e200, 12
+	sub.t e300, e100, e200
+	li.t t0, 18
+	bne.t e300, t0, fail
+	# check 5: writes to neighbours do not alias
+	li.t a0, 5
+	li.t e100, 1
+	li.t e101, 2
+	li.t e99, 3
+	li.t t0, 1
+	bne.t e100, t0, fail
+	# check 6: swap.t works on extended registers (mv2.t reads-before-writes)
+	li.t a0, 6
+	li.t e1, 10
+	li.t e2, 20
+	swap.t e1, e2
+	li.t t0, 20
+	bne.t e1, t0, fail
+	li.t t0, 10
+	bne.t e2, t0, fail
+	# check 7: x0 stays hardwired zero next to the pool (no off-by-one)
+	li.t a0, 7
+	li.t e0, 999
+	bne.t zero, x0, fail
+	bne.t x0, zero, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t

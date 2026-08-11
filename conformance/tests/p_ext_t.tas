@@ -1,0 +1,125 @@
+# P extension: TMAC.T / TSUM.T / QNT.T / HMAX.T + the TDOT.T pseudo (A1.8)
+# Written to rebel6-extensions.md "P - packed ternary SIMD"; expected
+# values computed independently (balanced-digit reference arithmetic).
+# Pass: exit 0. Fail: exit a0 = index of failed check.
+	.text
+main:
+	# check 1: tsum(0) = 0
+	li.t a0, 1
+	tsum.t t1, zero
+	bne.t t1, zero, fail
+	# check 2: tsum(13) = 3 (digits +,+,+)
+	li.t a0, 2
+	li.t t0, 13
+	tsum.t t1, t0
+	li.t t2, 3
+	bne.t t1, t2, fail
+	# check 3: tsum(-13) = -3
+	li.t a0, 3
+	li.t t0, -13
+	tsum.t t1, t0
+	li.t t2, -3
+	bne.t t1, t2, fail
+	# check 4: tsum(MAX) = 24 (all trits +)
+	li.t a0, 4
+	li.t t0, 141214768240
+	tsum.t t1, t0
+	li.t t2, 24
+	bne.t t1, t2, fail
+	# check 5: tsum(5) = -1 (digits -,-,+: 5 = 9 - 3 - 1)
+	li.t a0, 5
+	li.t t0, 5
+	tsum.t t1, t0
+	li.t t2, -1
+	bne.t t1, t2, fail
+	# check 6: tmac(13, 13, 10) = 10 + 3 = 13 (three +*+ lanes)
+	li.t a0, 6
+	li.t t0, 13
+	li.t t1, 10
+	tmac.t t2, t0, t0, t1
+	bne.t t2, t0, fail
+	# check 7: tmac(5, 13, 0) = -1 (lanes (-,-,+)*(+,+,+) = -1-1+1)
+	li.t a0, 7
+	li.t t0, 5
+	li.t t1, 13
+	tmac.t t2, t0, t1, zero
+	li.t t3, -1
+	bne.t t2, t3, fail
+	# check 8: the accumulate wraps balanced: MAX + 3 = MIN + 2
+	li.t a0, 8
+	li.t t0, 13
+	li.t t1, 141214768240
+	tmac.t t2, t0, t0, t1
+	li.t t3, -141214768238
+	bne.t t2, t3, fail
+	# check 9: tdot.t rd, rs1, rs2 = tmac.t rd, rs1, rs2, X0 (pseudo)
+	li.t a0, 9
+	li.t t0, 13
+	li.t t1, -13
+	tdot.t t2, t0, t1
+	li.t t3, -3
+	bne.t t2, t3, fail
+	# check 10: qnt(5, 3) = +1 (above the threshold band)
+	li.t a0, 10
+	li.t t0, 5
+	li.t t1, 3
+	qnt.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 11: qnt(-5, 3) = -1 (below the band)
+	li.t a0, 11
+	li.t t0, -5
+	qnt.t t2, t0, t1
+	li.t t3, -1
+	bne.t t2, t3, fail
+	# check 12: the band is inclusive: qnt(3, 3) = 0 and qnt(-3, 3) = 0
+	li.t a0, 12
+	li.t t0, 3
+	qnt.t t2, t0, t1
+	bne.t t2, zero, fail
+	li.t t0, -3
+	qnt.t t2, t0, t1
+	bne.t t2, zero, fail
+	# check 13: NEGATIVE threshold - the conditions overlap and the
+	# normative order is observable: qnt(-1, -2) tests -1 > -2 (true)
+	# BEFORE -1 < 2 (also true), so the greater-than arm wins: +1.
+	li.t a0, 13
+	li.t t0, -1
+	li.t t1, -2
+	qnt.t t2, t0, t1
+	li.t t3, 1
+	bne.t t2, t3, fail
+	# check 14: qnt(1, -2) = +1 (both conditions true; order picks +1)
+	li.t a0, 14
+	li.t t0, 1
+	qnt.t t2, t0, t1
+	bne.t t2, t3, fail
+	# check 15: hmax(5) = 5 (lane 0 = 5, lanes 1..3 = 0)
+	li.t a0, 15
+	li.t t0, 5
+	hmax.t t1, t0
+	bne.t t1, t0, fail
+	# check 16: hmax(-5) = 0 (zero lanes outrank the negative lane)
+	li.t a0, 16
+	li.t t0, -5
+	hmax.t t1, t0
+	bne.t t1, zero, fail
+	# check 17: hmax(100 * 3^6) = 100 (the value sits in tryte lane 1)
+	li.t a0, 17
+	li.t t0, 72900
+	hmax.t t1, t0
+	li.t t2, 100
+	bne.t t1, t2, fail
+	# check 18: all-negative lanes (-5, -7, -11, -2) - hmax = -2
+	li.t a0, 18
+	li.t t0, -780691937
+	hmax.t t1, t0
+	li.t t2, -2
+	bne.t t1, t2, fail
+	# all checks passed
+	li.t a7, 93
+	li.t a0, 0
+	ecall.t
+fail:
+	li.t a7, 93
+	ecall.t
