@@ -16,15 +16,22 @@ Ground truth is the frozen spec in `../docs/`:
 ## How to run
 
 ```sh
-REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
+REBEL6_SIM=<path-to-executor> ./run.sh [pattern]   # execute on a simulator
+./assemble.sh [pattern]                            # assemble through the Workbench
 ```
 
 - `REBEL6_SIM` defaults to the R2R reference executor
   (`RV32IToREBEL/build/RV32IToREBEL`), which executes `.tas` REBEL-6
   assembly directly.
+- `assemble.sh` exercises the other half of the shared-asset property:
+  every test must also assemble through the Workbench C# assembler
+  (`twb rebel6 asm`). No execution happens there — PASS means the
+  Workbench accepts the dialect and produces machine code. It builds
+  the CLI itself; `TWB_CLI=<path-to-TernaryWorkbench.Cli.dll>`
+  overrides.
 - The optional `pattern` is a shell glob over test basenames, e.g.
   `./run.sh 'shifts_*'`.
-- The runner prints `PASS`/`FAIL` per file plus a summary, and exits
+- Both runners print `PASS`/`FAIL` per file plus a summary, and exit
   nonzero if any test fails.
 
 ## Conventions
@@ -60,8 +67,10 @@ REBEL6_SIM=<path-to-executor> ./run.sh [pattern]
 
 ## Coverage
 
-All 46 tests pass against the R2R reference simulator as of this
-commit.
+All 49 tests pass against the R2R reference simulator as of this
+commit, and all of them except `legacy_shift_aliases_t` (see the
+dialect notes) also assemble through the Workbench assembler via
+`assemble.sh`.
 
 | Test | Instructions | Directed edge cases |
 |------|--------------|---------------------|
@@ -145,6 +154,20 @@ The A1.3 dialect addition: the platform register names (`mtvec`,
 accepted as register operands, normalized to their negative indices
 (`X-1` ... `X-22`). Suite convention remains own-line `#` comments except where a
 test deliberately exercises the other styles.
+
+**Workbench dialect parity.** The Workbench assembler
+(`twb rebel6 asm`, `Rebel6Assembler.AssembleProgram`) accepts the same
+dialect: the ABI register names (`zero`, `ra`, `sp`, `a0`–`a7`,
+`s0`–`s11`/`fp`, `t0`–`t6`, extended pool `e0`…; `gp` is rejected —
+the ABI retires it), the platform register names normalized to
+`X-1 … X-22`, the directive set `.text`/`.data`/`.word`/`.zero` with
+flat pre-linker data placement after the instruction image (matching
+R2R's 4-tryte-aligned layout), and leading-underscore labels. The one
+deliberate divergence: R2R's deprecated register right-shift aliases
+(`srz.t` etc.) negate the amount at runtime, which a spec-conformant
+assembler cannot express — the ratified signed-shift design retired
+`SR{N,Z,P}.T` outright — so `assemble.sh` skips
+`legacy_shift_aliases_t` until the aliases are deleted.
 
 Documented dialect behavior, kept by design:
 
